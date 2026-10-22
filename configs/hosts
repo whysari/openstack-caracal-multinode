@@ -2,12 +2,12 @@
 127.0.0.1       localhost
 127.0.1.1       $(hostname)
 
-# OpenStack management network
-10.10.10.11     controller01
-10.10.10.21     compute01
-10.10.10.22     compute02
-10.10.10.31     network01
-10.10.10.41     storage01
+# 192.168.100.0/24 — management and flat provider network (same L2)
+192.168.100.24  controller
+192.168.100.25  compute1
+192.168.100.26  compute2
+192.168.100.27  block
+192.168.100.28  object
 
 # IPv6 defaults
 ::1             localhost ip6-localhost ip6-loopback

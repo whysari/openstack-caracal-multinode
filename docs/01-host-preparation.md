@@ -1,7 +1,10 @@
 # 01 — Host preparation
 
-**Goal:** five Ubuntu 22.04 hosts with stable management addressing, synchronised clocks, the
-Caracal package repo, and the provider bridge in place on `network01`.
+**Goal:** five Ubuntu 22.04 hosts with stable addressing, synchronised clocks, the Caracal
+package repo, and the provider bridge in place on the controller.
+
+The cluster has three physical nodes (`controller`, `compute1`, `compute2`) and two virtual
+machines (`block`, `object`). All five sit on `192.168.100.0/24`.
 
 Run the steps on every node unless marked otherwise.
 
@@ -12,7 +15,7 @@ Run the steps on every node unless marked otherwise.
 Install Ubuntu Server 22.04 LTS (minimal). Then:
 
 ```bash
-sudo hostnamectl set-hostname controller01     # compute01, compute02, network01, storage01
+sudo hostnamectl set-hostname controller   # compute1, compute2, block, object
 sudo apt update && sudo apt -y upgrade
 sudo apt install -y software-properties-common chrony curl vim
 ```
@@ -20,64 +23,68 @@ sudo apt install -y software-properties-common chrony curl vim
 Copy [`configs/hosts`](../configs/hosts) to `/etc/hosts` on all five nodes, then verify:
 
 ```bash
-getent hosts controller01 compute01 compute02 network01 storage01
+getent hosts controller compute1 compute2 block object
 ```
 
-Every name must resolve to its `10.10.10.x` address before you continue — Keystone, RabbitMQ and
-the APIs all use hostnames in their config.
+Every name must resolve to its `192.168.100.x` address before you continue — Keystone,
+RabbitMQ and the APIs all use hostnames in their config.
 
-## 2. Management network
+## 2. Addressing
 
-Each host needs one management NIC. Confirm its name (it is rarely `eth0`):
+Each host has one NIC. Confirm its name (it is rarely `eth0`):
 
 ```bash
 ip -br link
 ```
 
-> **network01 ordering:** its netplan file defines the OVS bridge `br-ex`, so install
-> `openvswitch-switch` **before** applying netplan:
->
-> ```bash
-> sudo apt install -y openvswitch-switch
-> ```
+### Controller: `br-ex` carries the host address
 
-Copy the matching file from [`configs/netplan/`](../configs/netplan/) to
-`/etc/netplan/01-openstack.yaml`, replace the interface name, then:
+The controller is also the Neutron network node. Its physical NIC is enslaved to the OVS
+bridge `br-ex`, and `192.168.100.24/24` lives on the bridge. This is the single-NIC variant of
+the install guide: management and provider traffic share the same L2 segment.
+
+Install OVS **before** applying netplan:
+
+```bash
+sudo apt install -y openvswitch-switch
+```
+
+Copy [`configs/netplan/controller.yaml`](../configs/netplan/controller.yaml) to
+`/etc/netplan/01-openstack.yaml`, replace `enp1s0` with the real interface name, then:
 
 ```bash
 sudo netplan try      # auto-rolls back after 120 s if you lose connectivity
 sudo netplan apply
 ip -br address
-ping -c2 10.10.10.11
+ovs-vsctl show        # br-ex with the physical NIC as its port
+ping -c2 192.168.100.1
 ```
 
-## 3. Provider bridge (network01 only)
+> **Lockout warning:** if you apply the bridge manually over SSH, you can cut your own session.
+> Prefer `netplan try`; use [`configs/ovs/br-ex.sh`](../configs/ovs/br-ex.sh) only from a
+> console with `ALLOW_LOCKOUT=1`.
 
-`network01` has a second NIC (`enp2s0`) that carries the flat provider network. It is enslaved to
-`br-ex`, and **the bridge has no IP**: the router namespace owns the external gateway and the
-floating IPs.
+### Computes and storage VMs
 
-The netplan file [`configs/netplan/network01.yaml`](../configs/netplan/network01.yaml) does this
-declaratively:
+Copy the matching file from [`configs/netplan/`](../configs/netplan/) to
+`/etc/netplan/01-openstack.yaml`:
+
+| Host | File | Address |
+|---|---|---|
+| `compute1` | `compute1.yaml` | `192.168.100.25/24` |
+| `compute2` | `compute2.yaml` | `192.168.100.26/24` |
+| `block` | `block.yaml` | `192.168.100.27/24` |
+| `object` | `object.yaml` | `192.168.100.28/24` |
+
+Gateway `192.168.100.1`; DNS `1.1.1.1`, `8.8.8.8`. Replace the interface name and apply:
 
 ```bash
-sudo apt install -y openvswitch-switch
+sudo netplan try
 sudo netplan apply
-sudo ovs-vsctl show          # br-ex with enp2s0 as its only port
-sudo ovs-vsctl list-ports br-ex
+ip -br address
 ```
 
-If netplan's OVS integration gives you trouble, use the imperative fallback instead (and remove
-the `bridges:` block from netplan first):
-
-```bash
-sudo PROVIDER_IF=enp2s0 ./configs/ovs/br-ex.sh
-```
-
-> **Lockout warning:** enslaving the NIC that carries your SSH session will disconnect you. The
-> fallback script refuses to do that; netplan will not.
-
-## 4. Kernel and forwarding settings
+## 3. Kernel and forwarding settings
 
 Copy [`configs/sysctl/90-openstack.conf`](../configs/sysctl/90-openstack.conf) to
 `/etc/sysctl.d/90-openstack.conf` and apply:
@@ -87,10 +94,10 @@ sudo sysctl --system
 sysctl net.ipv4.ip_forward net.ipv4.conf.all.rp_filter
 ```
 
-`ip_forward=1` is required on `network01`; the computes also route VXLAN traffic between the
-overlay and the instance tap devices.
+`ip_forward=1` is required on the controller (router namespace and NAT) and on the computes
+(overlay-to-tap forwarding).
 
-## 5. Time synchronisation
+## 4. Time synchronisation
 
 ```bash
 sudo systemctl enable --now chrony
@@ -99,9 +106,10 @@ timedatectl show -p NTPSynchronized --value    # yes
 ```
 
 Skewed clocks cause `Unable to authenticate` and RabbitMQ heartbeat failures that look like
-unrelated bugs.
+unrelated bugs. On a fully offline lab, point `chrony` at the controller and let the controller
+use the host clock or an upstream NTP server.
 
-## 6. OpenStack Caracal repository
+## 5. OpenStack Caracal repository
 
 ```bash
 sudo add-apt-repository -y cloud-archive:caracal
@@ -117,11 +125,12 @@ sudo apt-mark hold 'python3-*openstack*' 'nova-*' 'neutron-*' 'cinder-*' 'swift-
   'keystone' 'glance' 'placement-*' 'openstack-dashboard'
 ```
 
-## 7. Storage devices
+## 6. Storage preparation
 
-### Cinder (storage01)
+### Block node — Cinder LVM
 
-The volume group must be called `cinder-volumes`. With a dedicated disk:
+The volume group must be called `cinder-volumes`. With a dedicated disk (`/dev/sdb` in the
+original build):
 
 ```bash
 sudo pvcreate /dev/sdb
@@ -129,7 +138,7 @@ sudo vgcreate cinder-volumes /dev/sdb
 sudo vgs cinder-volumes
 ```
 
-With a file-backed loop device (what the lab used for a quick rebuild):
+With a file-backed loop device (quick lab rebuild):
 
 ```bash
 sudo fallocate -l 50G /var/lib/cinder-volumes.img
@@ -138,48 +147,53 @@ sudo pvcreate "$LOOP"
 sudo vgcreate cinder-volumes "$LOOP"
 ```
 
-Loop devices do not survive a reboot; re-attach and `vgchange -ay cinder-volumes` after boot, or
-use a real disk. Cinder will mark the backend down if the VG disappears.
+Loop devices do not survive a reboot; re-attach and `vgchange -ay cinder-volumes` after boot,
+or use a real disk. Cinder marks the backend down if the VG disappears.
 
-### Swift (storage01, compute01, compute02)
+### Object node — Swift devices
 
-One XFS filesystem per node, mounted at `/srv/node/d1`:
+The original build used four directories, not four disks:
 
 ```bash
-sudo apt install -y xfsprogs
-sudo fallocate -l 20G /var/lib/swift-d1.img
-sudo mkfs.xfs /var/lib/swift-d1.img
-sudo mkdir -p /srv/node/d1
-echo '/var/lib/swift-d1.img /srv/node/d1 xfs loop,noatime 0 0' | sudo tee -a /etc/fstab
-sudo mount -a
+sudo mkdir -p /srv/node/{1,2,3,4}
 sudo chown -R swift:swift /srv/node
-df -h /srv/node/d1
 ```
 
-## 8. Package baseline
+Because these are directories on the root filesystem, the Swift server configs set
+`mount_check = false`. On a real deployment each device would be a separate filesystem and
+`mount_check` would be `true`. Add `xfsprogs` and mount real disks if you have them.
+
+## 7. Package baseline
 
 ```bash
 # all nodes
 sudo apt install -y python3-openstackclient chrony
 
-# controller01
-sudo apt install -y mariadb-server python3-pymysql rabbitmq-server memcached python3-memcache
+# controller
+sudo apt install -y mariadb-server python3-pymysql rabbitmq-server memcached \
+  python3-memcache etcd-server etcd-client apache2
 
-# network01
-sudo apt install -y openvswitch-switch
+# compute1, compute2
+sudo apt install -y qemu-kvm libvirt-daemon-system libvirt-clients \
+  openvswitch-switch
 
-# compute01, compute02
-sudo apt install -y qemu-kvm libvirt-daemon-system openvswitch-switch
+# block
+sudo apt install -y lvm2 tgt
+
+# object
+sudo apt install -y swift swift-account swift-container swift-object \
+  swift-proxy rsync
 ```
 
-## 9. Gate check
+## 8. Gate check
 
 ```bash
 ./scripts/00-preflight.sh
 ```
 
-Expected: hostname, all five names resolve, NTP synchronised, OVS present where required, and
-`br-ex` exists on `network01`. Do not proceed while anything reports `[FAIL]`.
+Expected: hostname, all five names resolve, NTP synchronised, OVS present on the controller
+and computes, `br-ex` carries `192.168.100.24/24`, and the block/object storage prerequisites
+exist. Do not proceed while anything reports `[FAIL]`.
 
 ---
 

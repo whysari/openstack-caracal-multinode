@@ -1,17 +1,11 @@
-# 06 — Cinder: LVM over iSCSI
+# 06 — Cinder: LVM/iSCSI block storage
 
-**Goal:** create a volume, attach it to a running instance, and see the block device inside the
-guest.
-
-Roles:
-
-- `controller01` — `cinder-api`, `cinder-scheduler`
-- `storage01` — `cinder-volume`, LVM VG `cinder-volumes`, `tgt` iSCSI target
-- `compute01/02` — `open-iscsi` (the client side)
+**Goal:** a Cinder API/scheduler on `controller` and a working `cinder-volume` on `block`,
+backed by the `cinder-volumes` LVM volume group and exported over iSCSI with `tgt`.
 
 ---
 
-## 1. Database and credentials (controller01)
+## 1. Database and credentials (controller)
 
 ```bash
 sudo mysql <<'SQL'
@@ -24,131 +18,150 @@ source ~/admin-openrc
 openstack user create --domain default --password CINDER_PASS cinder
 openstack role add --project service --user cinder admin
 openstack service create --name cinderv3 --description "OpenStack Block Storage" volumev3
-for iface in public internal; do
-  openstack endpoint create --region RegionOne volumev3 "$iface" http://controller01:8776/v3/%\(project_id\)s
+for iface in public internal admin; do
+  openstack endpoint create --region RegionOne volumev3 "$iface" \
+    "http://controller:8776/v3/%(project_id)s"
 done
-openstack endpoint create --region RegionOne volumev3 admin http://controller01:8776/v3/%\(project_id\)s
 ```
 
-## 2. Controller services
+## 2. Controller: API and scheduler
 
 ```bash
 sudo apt install -y cinder-api cinder-scheduler
 ```
 
-Install [`configs/controller/cinder.conf`](../configs/controller/cinder.conf) as
-`/etc/cinder/cinder.conf`.
+Copy [`configs/controller/cinder.conf`](../configs/controller/cinder.conf) to
+`/etc/cinder/cinder.conf`:
+
+```ini
+[DEFAULT]
+my_ip = 192.168.100.24
+transport_url = rabbit://openstack:RABBIT_PASS@controller:5672/
+glance_api_servers = http://controller:9292
+
+[database]
+connection = mysql+pymysql://cinder:CINDER_DBPASS@controller/cinder
+
+[keystone_authtoken]
+www_authenticate_uri = http://controller:5000
+auth_url = http://controller:5000
+project_name = service
+username = cinder
+password = CINDER_PASS
+```
 
 ```bash
 sudo su -s /bin/sh -c "cinder-manage db sync" cinder
 sudo systemctl enable --now cinder-api cinder-scheduler
 ```
 
-## 3. Storage node
+## 3. Block node: LVM and tgt
+
+On `block`:
 
 ```bash
-sudo apt install -y cinder-volume tgt open-iscsi
+sudo apt install -y cinder-volume lvm2 tgt
 ```
 
-Create the volume group exactly as named in the config:
+### LVM filter
+
+Copy the `devices` block from [`configs/block/lvm.conf`](../configs/block/lvm.conf) into
+`/etc/lvm/lvm.conf`:
+
+```ini
+devices {
+    filter = [ "a/sda/", "a/sdb/", "r/.*/" ]
+}
+```
+
+Only the OS disk (`sda`) and the Cinder data disk (`sdb`) are scanned. Without this filter, LVM
+can scan the iSCSI volumes Cinder creates and corrupt them.
+
+### Volume group
 
 ```bash
 sudo pvcreate /dev/sdb
 sudo vgcreate cinder-volumes /dev/sdb
-sudo vgs
+sudo vgs cinder-volumes
 ```
 
-If your disk is not `/dev/sdb`, adjust. Cinder refuses to start if the VG is missing.
+### tgt include
 
-Install [`configs/storage/cinder.conf`](../configs/storage/cinder.conf) as
-`/etc/cinder/cinder.conf`. The backend block is the part that matters:
+Copy [`configs/block/tgt-cinder.conf`](../configs/block/tgt-cinder.conf) to
+`/etc/tgt/conf.d/cinder.conf`:
 
-```ini
-[lvm-iscsi]
-volume_driver = cinder.volume.drivers.lvm.LVMVolumeDriver
-volume_group = cinder-volumes
-target_protocol = iscsi
-target_helper = tgtadm
-target_ip_address = 10.10.10.41
-volume_backend_name = lvm-iscsi
+```
+include /var/lib/cinder/volumes/*
 ```
 
 ```bash
 sudo systemctl enable --now tgt
+```
+
+### Cinder volume service
+
+Copy [`configs/block/cinder.conf`](../configs/block/cinder.conf) to `/etc/cinder/cinder.conf`:
+
+```ini
+[DEFAULT]
+my_ip = 192.168.100.27
+enabled_backends = lvm
+
+[lvm]
+volume_driver = cinder.volume.drivers.lvm.LVMVolumeDriver
+volume_group = cinder-volumes
+target_protocol = iscsi
+target_helper = tgtadm
+volume_backend_name = lvm
+```
+
+Start it:
+
+```bash
 sudo systemctl enable --now cinder-volume
 ```
 
-`cinder-volume` needs to reach RabbitMQ, MariaDB and the Cinder API. Check:
-
-```bash
-nc -vz controller01 5672
-nc -vz controller01 3306
-nc -vz controller01 8776
-```
-
-## 4. Compute side
-
-```bash
-sudo apt install -y open-iscsi
-sudo systemctl enable --now iscsid
-```
-
-Without `iscsiadm`, Nova reports the volume as attached but the guest never sees a device.
-
-## 5. Verify
+## 4. Verify
 
 ```bash
 source ~/admin-openrc
 openstack volume service list
 ```
 
-Expected: `cinder-scheduler` and `cinder-volume` both `up`. The volume service host is
-`storage01@lvm-iscsi`.
+Expected:
+
+| Binary | Host | Zone | State |
+|---|---|---|---|
+| `cinder-scheduler` | `controller` | nova | up |
+| `cinder-volume` | `block@lvm` | nova | up |
+
+The backend name is `lvm` — the lab build used `[lvm]` and `block@lvm`, not
+`lvm-iscsi`.
+
+Create and attach a volume:
 
 ```bash
 openstack volume create --size 1 demo-vol
 openstack volume list
-openstack volume show demo-vol -c status -c volume_type
-```
 
-Wait for `available`, then attach:
-
-```bash
-openstack server add volume cirros-01 demo-vol
+openstack server add volume selfservice-demo0 demo-vol
 openstack volume show demo-vol -c status -c attachments
+# status: in-use
 ```
 
-Expected: `status: in-use`, attachments contains `cirros-01` and a device path such as
-`/dev/vdb`.
-
-Inside the guest:
+Inside the guest, check for a second disk:
 
 ```bash
-ssh cirros@192.168.100.150
-lsblk
-# vda   1G  disk
-# vdb   1G  disk
-sudo mkfs.ext4 /dev/vdb
-sudo mkdir -p /mnt/data && sudo mount /dev/vdb /mnt/data
-df -h /mnt/data
+cat /proc/partitions
+# vdb (or sdb) with the volume size
 ```
 
-On `storage01`, the iSCSI target should show a backing LV:
+## 5. Gate check
 
-```bash
-sudo tgtadm --mode target --op show | grep -E 'Target|Backing store'
-sudo lvs
-```
-
-## 6. Gate check
-
-- `cinder-volume` and `cinder-scheduler` are `up`.
-- A 1 GiB volume reaches `available`.
-- Attaching it sets `in-use` and produces `/dev/vdb` in the guest.
-- `tgtadm` lists the target and the LVM logical volume as its backing store.
-
-If the volume stays `creating`, check `journalctl -u cinder-volume` — the usual causes are a
-missing VG, `tgt` not running, or `target_ip_address` pointing at an unreachable interface.
+- `cinder-volume` is `up` on `block@lvm`.
+- A 1 GiB volume reaches `available`, then `in-use` after attach.
+- `/dev/sdb` is the only non-OS disk in the VG.
+- `tgtadm --mode target --op show` lists the exported volume.
 
 ---
 

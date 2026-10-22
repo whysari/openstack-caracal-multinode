@@ -1,55 +1,82 @@
-# 04 — Nova (control plane and computes)
+# 04 — Nova: control plane and computes
 
-**Goal:** Nova API, scheduler, conductor and two compute nodes registered with Placement.
-Controller steps run on `controller01`; compute steps on `compute01` and `compute02`.
+**Goal:** Nova API, scheduler, conductor and two compute services, with KVM/libvirt on
+`compute1` and `compute2`.
+
+Run the database/credential steps and the control-plane steps on `controller`. Run the compute
+steps on each compute node.
 
 ---
 
-## 1. Database and credentials (controller01)
+## 1. Databases and credentials (controller)
 
 ```bash
 sudo mysql <<'SQL'
-CREATE DATABASE nova_api;
 CREATE DATABASE nova;
+CREATE DATABASE nova_api;
 CREATE DATABASE nova_cell0;
-GRANT ALL PRIVILEGES ON nova_api.* TO 'nova'@'localhost' IDENTIFIED BY 'NOVA_DBPASS';
-GRANT ALL PRIVILEGES ON nova_api.* TO 'nova'@'%' IDENTIFIED BY 'NOVA_DBPASS';
 GRANT ALL PRIVILEGES ON nova.* TO 'nova'@'localhost' IDENTIFIED BY 'NOVA_DBPASS';
 GRANT ALL PRIVILEGES ON nova.* TO 'nova'@'%' IDENTIFIED BY 'NOVA_DBPASS';
+GRANT ALL PRIVILEGES ON nova_api.* TO 'nova'@'localhost' IDENTIFIED BY 'NOVA_DBPASS';
+GRANT ALL PRIVILEGES ON nova_api.* TO 'nova'@'%' IDENTIFIED BY 'NOVA_DBPASS';
 GRANT ALL PRIVILEGES ON nova_cell0.* TO 'nova'@'localhost' IDENTIFIED BY 'NOVA_DBPASS';
 GRANT ALL PRIVILEGES ON nova_cell0.* TO 'nova'@'%' IDENTIFIED BY 'NOVA_DBPASS';
 SQL
-```
 
-```bash
 source ~/admin-openrc
 openstack user create --domain default --password NOVA_PASS nova
 openstack role add --project service --user nova admin
 openstack service create --name nova --description "OpenStack Compute" compute
-for iface in public internal; do
-  openstack endpoint create --region RegionOne compute "$iface" http://controller01:8774/v2.1
+
+for iface in public internal admin; do
+  openstack endpoint create --region RegionOne compute "$iface" http://controller:8774/v2.1
 done
-openstack endpoint create --region RegionOne compute admin http://controller01:8774/v2.1
 ```
 
-## 2. Controller packages and config
+## 2. Control plane (controller)
 
 ```bash
-sudo apt install -y nova-api nova-conductor nova-novncproxy nova-scheduler
+sudo apt install -y nova-api nova-conductor nova-scheduler nova-novncproxy
 ```
 
-Install [`configs/controller/nova.conf`](../configs/controller/nova.conf) as `/etc/nova/nova.conf`.
-Replace the placeholder passwords. `my_ip` must be `10.10.10.11`.
+Copy [`configs/controller/nova.conf`](../configs/controller/nova.conf) to `/etc/nova/nova.conf`.
+The important values:
+
+```ini
+[DEFAULT]
+my_ip = 192.168.100.24
+transport_url = rabbit://openstack:RABBIT_PASS@controller:5672/
+use_neutron = true
+
+[api_database]
+connection = mysql+pymysql://nova:NOVA_DBPASS@controller/nova_api
+
+[database]
+connection = mysql+pymysql://nova:NOVA_DBPASS@controller/nova
+
+[glance]
+api_servers = http://controller:9292
+
+[neutron]
+auth_url = http://controller:5000
+service_metadata_proxy = true
+metadata_proxy_shared_secret = METADATA_SECRET
+
+[vnc]
+server_listen = 192.168.100.24
+server_proxyclient_address = 192.168.100.24
+novncproxy_base_url = http://192.168.100.24:6080/vnc_auto.html
+```
+
+Populate the databases and create the cell:
 
 ```bash
 sudo su -s /bin/sh -c "nova-manage api_db sync" nova
 sudo su -s /bin/sh -c "nova-manage cell_v2 map_cell0" nova
 sudo su -s /bin/sh -c "nova-manage cell_v2 create_cell --name=cell1 --verbose" nova
 sudo su -s /bin/sh -c "nova-manage db sync" nova
-sudo nova-manage cell_v2 list_cells
+sudo su -s /bin/sh -c "nova-manage cell_v2 list_cells" nova
 ```
-
-Expected: `cell0` and `cell1`, both with a working transport URL.
 
 ```bash
 sudo systemctl enable --now nova-api nova-scheduler nova-conductor nova-novncproxy
@@ -57,75 +84,65 @@ sudo systemctl enable --now nova-api nova-scheduler nova-conductor nova-novncpro
 
 ## 3. Compute nodes
 
-On **compute01** and **compute02**:
+On **both** `compute1` and `compute2`:
 
 ```bash
 sudo apt install -y nova-compute
 ```
 
-Install [`configs/compute/nova.conf`](../configs/compute/nova.conf) as `/etc/nova/nova.conf`.
-Change `my_ip`, `server_proxyclient_address` and (if needed) `virt_type`.
+Copy the matching file:
+
+| Host | File |
+|---|---|
+| `compute1` | [`configs/compute1/nova.conf`](../configs/compute1/nova.conf) |
+| `compute2` | [`configs/compute2/nova.conf`](../configs/compute2/nova.conf) |
+
+Key difference: `my_ip` and `server_proxyclient_address` are `.25` on `compute1` and `.26` on
+`compute2`; `novncproxy_base_url` always points at `controller:6080`.
 
 ```bash
-# KVM requires vmx/svm; otherwise set virt_type = qemu
-egrep -c '(vmx|svm)' /proc/cpuinfo
-sudo systemctl enable --now libvirtd
 sudo systemctl enable --now nova-compute
 ```
 
-Check that the compute can reach the control plane before debugging Nova itself:
+If the host does not expose hardware virtualisation (`egrep -c '(vmx|svm)' /proc/cpuinfo` is
+`0`), set `[libvirt] virt_type = qemu` in `nova.conf` and restart `nova-compute`.
 
-```bash
-nc -vz controller01 5672    # RabbitMQ
-nc -vz controller01 3306    # MariaDB
-nc -vz controller01 8774    # Nova API
-```
-
-## 4. Register the computes
-
-Back on `controller01`, after both computes have started:
+## 4. Discover the computes (controller)
 
 ```bash
 source ~/admin-openrc
-sudo nova-manage cell_v2 discover_hosts --verbose
+sudo su -s /bin/sh -c "nova-manage cell_v2 discover_hosts --verbose" nova
 openstack compute service list
 openstack hypervisor list
 ```
 
 Expected:
 
-```
-+----+----------------+------------+------+----------+---------+-------+
-| ID | Binary         | Host       | Zone | Status   | State   | ...   |
-+----+----------------+------------+------+----------+---------+-------+
-| .. | nova-conductor | controller | nova | enabled  | up      | ...   |
-| .. | nova-scheduler | controller | nova | enabled  | up      | ...   |
-| .. | nova-compute   | compute01  | nova | enabled  | up      | ...   |
-| .. | nova-compute   | compute02  | nova | enabled  | up      | ...   |
-+----+----------------+------------+------+----------+---------+-------+
-```
+| Binary | Host | State |
+|---|---|---|
+| `nova-conductor` | `controller` | up |
+| `nova-scheduler` | `controller` | up |
+| `nova-compute` | `compute1` | up |
+| `nova-compute` | `compute2` | up |
 
-If a compute is missing, it has not registered with the message queue. Check
-`journalctl -u nova-compute -n 100` for `AMQP` or authentication errors before anything else.
-
-## 5. Flavor
+The lab capture also shows a `nova-compute` record on `controller`.
+That is a leftover from an earlier all-in-one attempt, not part of this design. If it exists,
+disable the unit and remove the stale service record:
 
 ```bash
-openstack flavor create --vcpus 1 --ram 256 --disk 1 m1.tiny
-openstack flavor list
+sudo systemctl disable --now nova-compute    # only if installed on the controller by mistake
+openstack compute service delete <service-id>
 ```
 
-Swift and Cinder do not need flavors, but the smoke test does.
+The demo capture also intentionally stopped `compute2`'s `nova-compute` and OVS agent. See
+[11 — Completing the build](11-completing-the-build.md) to bring it back.
 
-## 6. Gate check
+## 5. Gate check
 
-```bash
-openstack compute service list
-openstack hypervisor list
-openstack hypervisor show compute01 -c vcpus -c memory_mb -c running_vms
-```
-
-All four services are `up`; both hypervisors are visible with the expected capacity.
+- `openstack compute service list` shows both computes up.
+- `openstack hypervisor list` shows `compute1` and `compute2`.
+- `openstack resource provider list` shows a provider per compute.
+- `/var/log/nova/nova-compute.log` has no libvirt or AMQP errors.
 
 ---
 

@@ -2,8 +2,8 @@
 #
 # Capture verification evidence into evidence/<timestamp>-<host>/.
 #
-# Run on controller01 for cloud-level state, then repeat on network01 and
-# compute01 for the host-level data path:
+# Run on the controller for cloud-level state, then repeat on compute1,
+# compute2, block and object for the host-level data path:
 #
 #   source ~/admin-openrc
 #   ./scripts/30-collect-evidence.sh
@@ -45,10 +45,6 @@ if [[ -n "${OS_AUTH_URL:-}" ]]; then
     run image-list                openstack image list
     run hypervisor-list           openstack hypervisor list
     run flavor-list               openstack flavor list
-
-    if openstack network agent list -f value -c "Agent Type" | grep -q "Open vSwitch"; then
-        run ovs-agent-list openstack network agent list --agent-type openvswitch
-    fi
 else
     echo "warning: OS_AUTH_URL unset, cloud commands skipped" | tee "$OUT/README.txt"
 fi
@@ -63,8 +59,29 @@ run ovs-vsctl-show      ovs-vsctl show
 run ovs-bridges         ovs-vsctl list-br
 run netns               ip netns
 
-for unit in neutron-openvswitch-agent neutron-l3-agent neutron-dhcp-agent \
-            neutron-metadata-agent nova-compute cinder-volume tgt; do
+units=()
+case "$HOST" in
+    controller)
+        units=(neutron-server neutron-openvswitch-agent neutron-l3-agent \
+               neutron-dhcp-agent neutron-metadata-agent nova-api nova-scheduler \
+               nova-conductor nova-novncproxy cinder-api cinder-scheduler \
+               swift-proxy apache2)
+        ;;
+    compute1|compute2)
+        units=(nova-compute neutron-openvswitch-agent libvirtd)
+        ;;
+    block)
+        units=(cinder-volume tgt)
+        ;;
+    object)
+        units=(swift-account-auditor swift-account-replicator swift-account-server \
+               swift-container-auditor swift-container-replicator \
+               swift-container-server swift-object-auditor swift-object-replicator \
+               swift-object-server swift-proxy)
+        ;;
+esac
+
+for unit in "${units[@]}"; do
     if systemctl list-unit-files "$unit.service" >/dev/null 2>&1; then
         run "journal-$unit" journalctl -u "$unit" -n 200 --no-pager
     fi

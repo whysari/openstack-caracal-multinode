@@ -1,4 +1,4 @@
-# /etc/openstack-dashboard/local_settings.py — controller01
+# /etc/openstack-dashboard/local_settings.py — controller
 # Only the values that differ from the Ubuntu package defaults are shown.
 
 import os
@@ -6,7 +6,7 @@ import os
 DEBUG = False
 ALLOWED_HOSTS = ['*']
 
-OPENSTACK_HOST = "controller01"
+OPENSTACK_HOST = "controller"
 OPENSTACK_KEYSTONE_URL = "http://%s:5000/v3" % OPENSTACK_HOST
 OPENSTACK_KEYSTONE_DEFAULT_ROLE = "user"
 OPENSTACK_KEYSTONE_MULTIDOMAIN_SUPPORT = True
@@ -33,6 +33,10 @@ SESSION_ENGINE = "django.contrib.sessions.backends.cache"
 CACHES = {
     "default": {
         "BACKEND": "django.core.cache.backends.memcached.PyMemcacheCache",
-        "LOCATION": "controller01:11211",
+        "LOCATION": "controller:11211",
     },
 }
+
+# The Ubuntu package defaults to True, which tries to regenerate the
+# compressed asset bundle on first request and fails on a minimal install.
+COMPRESS_OFFLINE = False

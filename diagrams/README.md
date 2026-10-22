@@ -8,6 +8,14 @@
 | `floating-ip-path.svg` | Rendered sequence diagram of a north–south packet. |
 | `floating-ip-path.mmd` | Mermaid source for the sequence diagram. |
 
+The topology is **3 physical + 2 virtual** nodes:
+
+- `controller` (.24) — control plane, data services and the Neutron network node (`br-ex`,
+  L3, DHCP, metadata, OVS).
+- `compute1` (.25), `compute2` (.26) — KVM and OVS agents.
+- `block` (.27) — Cinder LVM/iSCSI.
+- `object` (.28) — Swift data servers; the Swift proxy is on `controller:8080`.
+
 Regenerate the Mermaid renders:
 
 ```bash

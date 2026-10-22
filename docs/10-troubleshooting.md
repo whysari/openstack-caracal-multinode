@@ -1,113 +1,82 @@
 # 10 — Troubleshooting
 
-Symptom → likely layer → command. Work from the bottom up: most "OpenStack is broken" reports are
-a dead agent, a full disk, or a clock that drifted.
+Work from the bottom of the stack up: host → database/AMQP → API → agent → namespace → guest.
+Most "OpenStack bugs" are a stopped service, a wrong IP, or a clock/credential mismatch.
 
 ---
 
-## First three commands for any failure
-
-```bash
-source ~/admin-openrc
-openstack network agent list
-openstack compute service list
-openstack volume service list
-```
-
-Any `down`/`False` row is the first thing to fix. Logs:
-
-```bash
-journalctl -u neutron-server -n 100 --no-pager
-journalctl -u nova-compute -n 100 --no-pager
-journalctl -u cinder-volume -n 100 --no-pager
-tail -100 /var/log/swift/proxy.log
-```
-
----
-
-## Identity and messaging
+## Service and API
 
 | Symptom | Check | Fix |
 |---|---|---|
-| `Unable to establish connection to http://controller01:5000` | `ss -lntp \| grep 5000`, `systemctl status apache2` | Apache/Keystone down; check `/var/log/apache2/keystone-error.log` |
-| `The request you have made requires authentication` | `openstack token issue`, compare `OS_PASSWORD` | wrong password or domain; re-source `admin-openrc` |
-| `AMQPChannelAddressError` / `ConnectionRefusedError` | `nc -vz controller01 5672`, `rabbitmqctl status` | RabbitMQ down or `transport_url` typo |
-| `Access refused for user 'openstack'` | `rabbitmqctl list_permissions` | re-run `set_permissions openstack ".*" ".*" ".*"` |
-| Token validation slow / random 401s | `chronyc tracking`, `date` on all nodes | enable chrony everywhere; clock skew breaks Fernet |
-| `DBConnectionError` | `mysql -h controller01 -u nova -p`, `ss -lntp \| grep 3306` | MariaDB bind address or grant missing |
+| `Unable to establish connection to http://controller:5000` | `systemctl status apache2`, `ss -lntp \| grep 5000` | Start Apache; check the Keystone WSGI symlink |
+| `AMQPChannelAddressError` / `ConnectionRefusedError 5672` | `rabbitmqctl status`, `rabbitmqctl list_users` | Start RabbitMQ; recreate the `openstack` user/permissions |
+| `Access denied for user 'nova'@'controller'` | `mysql -u nova -p -h controller` | Re-grant the service user for `'%'` as well as `localhost` |
+| `401 Unauthorized` from every client | `openstack token issue`, `chronyc tracking` | Fix NTP; re-source the RC file; check the password placeholder |
+| `404` on a service endpoint | `openstack endpoint list` | Recreate the endpoint with the right port/version |
 
 ## Nova
 
 | Symptom | Check | Fix |
 |---|---|---|
-| Instance stuck `BUILD` | `openstack server show -c fault`, `journalctl -u nova-compute` | read `fault.message`; usually port binding or image |
-| `No valid host was found` | `openstack hypervisor list`, `openstack resource provider list` | computes not registered; `nova-manage cell_v2 discover_hosts` |
-| `Port binding failed` | `openstack network agent list` | OVS agent down or wrong `bridge_mappings` |
-| Instance boots but no console | `openstack console url show`, `ss -lntp \| grep 6080` | `nova-novncproxy` down or `novncproxy_base_url` wrong |
-| Compute disappears after reboot | `systemctl is-enabled nova-compute` | enable the unit, then re-run `discover_hosts` |
+| `nova-compute` down | `systemctl status nova-compute`, `journalctl -u nova-compute -n 100` | Fix the config/AMQP error; `systemctl enable --now nova-compute` |
+| Instance stuck `BUILD` | `openstack server show <id>`, `nova-compute` log | Usually a port binding failure — see the Neutron table |
+| `No valid host was found` | `openstack hypervisor list`, `openstack resource provider list` | Compute down, or not discovered: `nova-manage cell_v2 discover_hosts` |
+| `libvirtError: unsupported configuration: host doesn't support...` | `egrep -c '(vmx\|svm)' /proc/cpuinfo` | Set `[libvirt] virt_type = qemu` |
+| Console blank | `systemctl status nova-novncproxy`, port 6080 | Start novncproxy; check `novncproxy_base_url` uses `.24` |
 
-## Neutron / OVS
+## Neutron
 
 | Symptom | Check | Fix |
 |---|---|---|
-| No DHCP address | `ip netns`, `journalctl -u neutron-dhcp-agent` | `qdhcp` namespace missing; restart DHCP agent |
-| DHCP offer but no metadata | `curl 169.254.169.254` from guest | shared secret mismatch; compare both configs |
-| Floating IP unreachable | `ip netns exec qrouter-… ip route`, `iptables -t nat -S` | missing gateway or NAT rule; check `br-ex` mapping |
-| Ping works, SSH times out | `openstack security group rule list default` | add TCP/22 ingress |
-| East–west fails across computes | `ovs-vsctl show \| grep vxlan`, `nc -vzu <peer> 4789` | wrong `local_ip`, firewall on UDP/4789, or MTU |
-| Large packets hang, small work | guest MTU, `ip link show br-tun` | VXLAN overhead; set MTU 1450 on tenant nets |
-| `br-ex` has an IP and traffic loops | `ip addr show br-ex` | remove the address; the router namespace owns it |
-| Agent `UP` but no flows | `ovs-ofctl dump-flows br-int` | agent/OVS version mismatch or `openvswitch` service restarted |
-
-Reset a single agent without touching the whole cloud:
-
-```bash
-sudo systemctl restart neutron-openvswitch-agent
-sudo systemctl restart neutron-l3-agent
-sudo systemctl restart neutron-dhcp-agent
-```
+| OVS agent down | `journalctl -u neutron-openvswitch-agent -n 100` | Fix `local_ip` / `bridge_mappings`; restart |
+| `binding:failed` on a port | `openstack network agent list` | The compute's OVS agent is down or the host is not in the agents list |
+| No DHCP | `ip netns`, `journalctl -u neutron-dhcp-agent` | Start the DHCP agent; check `interface_driver = openvswitch` |
+| Metadata 500 | Compare `metadata_proxy_shared_secret` in `nova.conf` and `metadata_agent.ini` | Make them identical; restart both services |
+| Floating IP unreachable | `ovs-vsctl show`, `ip netns exec qrouter-... ip route` | `br-ex` missing the NIC, wrong gateway, or `rp_filter` |
+| Router namespace missing | `openstack router show router`, `ip netns` | Re-add the external gateway and the selfservice subnet |
+| VXLAN traffic not passing | `ovs-vsctl show` on both ends, `ping <local_ip>` | Check `local_ip` on each host and UDP 4789 reachability |
 
 ## Cinder
 
 | Symptom | Check | Fix |
 |---|---|---|
-| Volume stuck `creating` | `journalctl -u cinder-volume`, `vgs` | VG missing or `tgt` down |
-| `No valid backend` | `openstack volume service list` | cinder-volume down; check `enabled_backends` spelling |
-| Attach succeeds, no `/dev/vdb` | `iscsiadm -m session`, `journalctl -u nova-compute` | `open-iscsi` missing on compute |
-| `target already exists` | `tgtadm --mode target --op show` | stale target; restart `tgt` and cinder-volume |
-| Volume delete hangs | `lvs`, `tgtadm` | LV still mapped; detach from guest first |
+| `cinder-volume` down on `block` | `journalctl -u cinder-volume -n 100` | Fix the DB/AMQP connection or the LVM filter |
+| `No valid backend` | `openstack volume service list` | `enabled_backends = lvm` must match the `[lvm]` section |
+| Attach fails | `systemctl status tgt`, `tgtadm --mode target --op show` | Start `tgt`; check the include file and TCP/3260 |
+| Volume stuck `creating` | `vgs cinder-volumes`, `lvs` | The VG is missing or the LVM filter hides `/dev/sdb` |
+| Guest does not see the disk | `cat /proc/partitions` | The image may need the virtio-scsi driver; check the compute log |
 
 ## Swift
 
 | Symptom | Check | Fix |
 |---|---|---|
-| Proxy 503 | `ss -lntp \| grep -E '6200\|6201\|6202'` | storage services down |
-| 503 on one node only | `swift-ring-builder …`, ring files | ring not distributed or hash mismatch |
-| `Mount check failed` | `mount \| grep /srv/node` | device not mounted; `mount -a` |
-| Objects only on one node | `find /srv/node/d1/objects` on each | replicas not 3 or ring not rebalanced |
-| Replication errors | `tail /var/log/rsyncd.log`, `nc -vz <peer> 873` | rsync daemon/firewall |
-| 401 from Swift | `openstack token issue`, `operator_roles` | user lacks `admin`/`user` role on the project |
+| `503 Service Unavailable` | `journalctl -u swift-proxy`, `/var/log/swift/proxy.log` | Ring missing on the controller, or object servers down |
+| `401` from `openstack object` | `swift stat`; check `authtoken`/`keystoneauth` pipeline | Keystone endpoint/password mismatch |
+| `Account not found` | `swift stat` | `account_autocreate = true` in the proxy; create the container first |
+| Object servers not starting | `mount_check` and `/srv/node` | Set `mount_check = false` for directory devices |
+| Ring says `0 devices` | `swift-ring-builder *.builder` | Re-run the `add` commands and `rebalance` |
+| Replication never completes | `swift-init all status`, `rsync` | Single node has no peers; this is expected |
 
-## Full-disk and resource issues
+## Horizon
 
-```bash
-df -h /var/lib/nova /var/lib/cinder /srv/node /var/log
-openstack hypervisor show compute01 -c free_disk_gb -c free_ram_mb
-```
+| Symptom | Check | Fix |
+|---|---|---|
+| `OfflineGenerationError` | `/etc/openstack-dashboard/local_settings.py` | Set `COMPRESS_OFFLINE = False`; restart Apache |
+| Login loops | `OPENSTACK_KEYSTONE_URL`, Memcached | Use `http://controller:5000/v3`; start Memcached |
+| `SECRET_KEY` error | `/etc/openstack-dashboard/local_settings.py` | Set a unique `SECRET_KEY` |
+| 500 on every page | `/var/log/apache2/error.log` | Usually a Python package mismatch after an upgrade |
 
-Nova refuses to schedule when the instance disk cannot fit; Cinder refuses to create volumes when
-the VG is full; Swift goes read-only-ish when a device fills. Clean up old images/volumes before
-blaming the scheduler.
+## Host and network
 
-## Rebuild order after a host reboot
-
-1. `network01`: `openvswitch-switch`, then neutron agents (systemd ordering handles it).
-2. `storage01`: `tgt`, `cinder-volume`, Swift services, and re-attach any loopback VG.
-3. computes: `libvirtd`, `nova-compute`, `neutron-openvswitch-agent`.
-4. `controller01`: MariaDB, RabbitMQ, memcached, then the APIs.
-
-Check `systemctl --failed` on every node after boot; the repo's evidence script captures it.
+| Symptom | Check | Fix |
+|---|---|---|
+| Controller unreachable after netplan | `ip -br address`, `ovs-vsctl show` | The IP must be on `br-ex`, not the physical NIC; use `netplan try` |
+| Hosts cannot resolve each other | `getent hosts controller` | Fix `/etc/hosts` on all five nodes |
+| Clock skew | `chronyc tracking` | Start/configure chrony; allow NTP on the LAN |
+| SSH to instance times out, ping works | `openstack security group rule list default` | Add TCP/22 |
+| Large packets hang | `ip addr` in the guest | VXLAN MTU 1450; set `path_mtu = 1500` |
 
 ---
 
-Back to: [README](../README.md) · [09 — Verification](09-verification.md)
+More commands and expected outputs: [09 — Verification](09-verification.md).
