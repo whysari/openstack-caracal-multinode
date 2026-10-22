@@ -1,0 +1,23 @@
+# OS / editor
+.DS_Store
+*.swp
+
+# Secrets and local credentials
+admin-openrc
+*openrc
+secrets.env
+*.pem
+*.key
+
+# Images and large artifacts
+*.img
+*.qcow2
+*.iso
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+
+# Logs
+*.log

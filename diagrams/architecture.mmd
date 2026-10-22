@@ -1,0 +1,65 @@
+flowchart TB
+    subgraph EXT["External network · 192.168.100.0/24"]
+        direction LR
+        LAN["LAN gateway<br/>192.168.100.1"]
+        FIP["Floating IP pool<br/>192.168.100.150 – .200"]
+        OPS["Operator / SSH<br/>192.168.100.50"]
+    end
+
+    subgraph CTRL["controller01 · 10.10.10.11"]
+        direction TB
+        API["Keystone · Glance · Placement<br/>Nova API / scheduler / conductor<br/>Neutron server · Cinder API<br/>Horizon"]
+        DATA[("MariaDB<br/>RabbitMQ<br/>Memcached")]
+        SWP["swift-proxy :8080"]
+        API --- DATA
+        SWP --- DATA
+    end
+
+    subgraph NET["network01 · 10.10.10.31"]
+        direction TB
+        BREX["br-ex<br/>provider bridge"]
+        L3["neutron-l3-agent<br/>qrouter · SNAT / DNAT"]
+        DHCP["neutron-dhcp-agent<br/>qdhcp namespaces"]
+        META["neutron-metadata-agent"]
+        BREX --- L3
+        L3 --- DHCP
+        L3 --- META
+    end
+
+    subgraph COMP["compute nodes · 10.10.10.21 / .22"]
+        direction LR
+        subgraph C1["compute01"]
+            N1["nova-compute<br/>libvirt / KVM"]
+            O1["OVS agent<br/>br-int · br-tun"]
+        end
+        subgraph C2["compute02"]
+            N2["nova-compute<br/>libvirt / KVM"]
+            O2["OVS agent<br/>br-int · br-tun"]
+        end
+    end
+
+    subgraph STOR["storage01 · 10.10.10.41"]
+        CINDER["cinder-volume<br/>LVM VG cinder-volumes<br/>tgt iSCSI :3260"]
+    end
+
+    subgraph SWIFT["Swift object cluster · 3 zones / 3 replicas"]
+        direction LR
+        Z1["zone 1<br/>storage01"]
+        Z2["zone 2<br/>compute01"]
+        Z3["zone 3<br/>compute02"]
+        Z1 <--> Z2
+        Z2 <--> Z3
+        Z3 <--> Z1
+    end
+
+    LAN --- BREX
+    BREX --- FIP
+    OPS -. "SSH / Horizon" .-> API
+    L3 <-->|"VXLAN VNI 1–1000<br/>10.10.10.0/24"| O1
+    L3 <-->|"VXLAN VNI 1–1000"| O2
+    API <-. "AMQP · SQL · REST" .-> COMP
+    API <-. "AMQP · SQL · REST" .-> NET
+    API <-. "AMQP · SQL · REST" .-> STOR
+    CINDER <-->|"iSCSI 3260"| N1
+    CINDER <-->|"iSCSI 3260"| N2
+    SWP <-->|"ring replication"| SWIFT

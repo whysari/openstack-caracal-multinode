@@ -1,0 +1,14 @@
+# /etc/netplan/01-openstack.yaml — compute02
+network:
+  version: 2
+  renderer: networkd
+  ethernets:
+    enp1s0:
+      dhcp4: false
+      addresses:
+        - 10.10.10.22/24
+      routes:
+        - to: default
+          via: 10.10.10.1
+      nameservers:
+        addresses: [1.1.1.1, 8.8.8.8]

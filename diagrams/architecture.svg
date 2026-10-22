@@ -1,0 +1,259 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1050" viewBox="0 0 1600 1050" role="img" aria-labelledby="title desc">
+  <title id="title">OpenStack Caracal five-node private cloud architecture</title>
+  <desc id="desc">Five nodes: controller01 runs Keystone, Glance, Placement, Nova control plane, Neutron server, Cinder API, Horizon, MariaDB, RabbitMQ, Memcached and the Swift proxy. network01 runs the OVS agent, L3, DHCP and metadata agents with br-ex. compute01 and compute02 run nova-compute, KVM, OVS agents and Swift zones. storage01 runs cinder-volume with LVM and tgt iSCSI and Swift zone 1. Tenant VXLAN overlays run over the management network; the flat provider network carries floating IPs.</desc>
+
+  <defs>
+    <marker id="arrow-blue" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#326CE5"/>
+    </marker>
+    <marker id="arrow-gray" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#94a3b8"/>
+    </marker>
+    <marker id="arrow-green" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#2E8B57"/>
+    </marker>
+    <style>
+      .box { fill: #ffffff; stroke: #d5deea; stroke-width: 1.5; }
+      .chip { fill: #f2f6fb; stroke: #dbe4ef; stroke-width: 1; }
+      .t { font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #1f2937; }
+      .title { font-size: 16px; font-weight: 650; }
+      .sub { font-size: 12px; fill: #5b6575; }
+      .chip-main { font-size: 12.5px; font-weight: 600; }
+      .chip-sub { font-size: 10.5px; fill: #5b6575; }
+      .note { font-size: 11px; fill: #5b6575; }
+      .link { font-size: 10.5px; fill: #475569; }
+      .data { stroke: #326CE5; stroke-width: 2; fill: none; }
+      .mgmt { stroke: #94a3b8; stroke-width: 1.6; stroke-dasharray: 6 5; fill: none; }
+      .repl { stroke: #2E8B57; stroke-width: 1.6; stroke-dasharray: 3 4; fill: none; }
+    </style>
+  </defs>
+
+  <rect width="1600" height="1050" fill="#ffffff"/>
+
+  <!-- ================= EXTERNAL ================= -->
+  <rect class="box" x="40" y="30" width="1520" height="110" rx="12"/>
+  <rect x="40" y="30" width="6" height="110" rx="3" fill="#8a94a6"/>
+  <text class="t title" x="64" y="57">External / provider network · 192.168.100.0/24</text>
+  <text class="t sub" x="64" y="76">flat · untagged · outside the cloud</text>
+
+  <rect class="chip" x="64" y="86" width="228" height="40" rx="8"/>
+  <text class="t chip-main" x="78" y="103">LAN gateway</text>
+  <text class="t chip-sub" x="78" y="118">192.168.100.1</text>
+
+  <rect class="chip" x="312" y="86" width="228" height="40" rx="8"/>
+  <text class="t chip-main" x="326" y="103">Operator workstation</text>
+  <text class="t chip-sub" x="326" y="118">192.168.100.50 · SSH / Horizon</text>
+
+  <rect class="chip" x="560" y="86" width="248" height="40" rx="8"/>
+  <text class="t chip-main" x="574" y="103">Floating IP pool</text>
+  <text class="t chip-sub" x="574" y="118">192.168.100.150 – 192.168.100.200</text>
+
+  <text class="t note" x="840" y="111">Router gateway and floating IPs live in the qrouter namespace on network01.</text>
+
+  <!-- ================= CONTROLLER ================= -->
+  <rect class="box" x="40" y="180" width="960" height="310" rx="12"/>
+  <rect x="40" y="180" width="960" height="5" rx="2.5" fill="#ED1844"/>
+  <text class="t title" x="64" y="210">controller01 · 10.10.10.11</text>
+  <text class="t sub" x="64" y="230">control plane · APIs · shared services · RegionOne / Default domain</text>
+  <line x1="64" y1="242" x2="976" y2="242" stroke="#e6ecf4"/>
+
+  <rect class="chip" x="64" y="258" width="270" height="38" rx="8"/>
+  <text class="t chip-main" x="78" y="282">Keystone · Fernet tokens</text>
+
+  <rect class="chip" x="64" y="306" width="270" height="38" rx="8"/>
+  <text class="t chip-main" x="78" y="330">Glance · file backend</text>
+
+  <rect class="chip" x="64" y="354" width="270" height="38" rx="8"/>
+  <text class="t chip-main" x="78" y="378">Placement · resource inventory</text>
+
+  <rect class="chip" x="64" y="402" width="270" height="38" rx="8"/>
+  <text class="t chip-main" x="78" y="426">Horizon · dashboard</text>
+
+  <rect class="chip" x="354" y="258" width="290" height="38" rx="8"/>
+  <text class="t chip-main" x="368" y="282">Nova API · scheduler · conductor</text>
+
+  <rect class="chip" x="354" y="306" width="290" height="38" rx="8"/>
+  <text class="t chip-main" x="368" y="330">Neutron server · ML2 + OVS</text>
+
+  <rect class="chip" x="354" y="354" width="290" height="38" rx="8"/>
+  <text class="t chip-main" x="368" y="378">Cinder API · scheduler</text>
+
+  <rect class="chip" x="354" y="402" width="290" height="38" rx="8"/>
+  <text class="t chip-main" x="368" y="426">nova-novncproxy · :6080</text>
+
+  <rect class="chip" x="664" y="258" width="300" height="38" rx="8"/>
+  <text class="t chip-main" x="678" y="282">MariaDB · service databases</text>
+
+  <rect class="chip" x="664" y="306" width="300" height="38" rx="8"/>
+  <text class="t chip-main" x="678" y="330">RabbitMQ · AMQP :5672</text>
+
+  <rect class="chip" x="664" y="354" width="300" height="38" rx="8"/>
+  <text class="t chip-main" x="678" y="378">Memcached · tokens :11211</text>
+
+  <rect class="chip" x="664" y="402" width="300" height="38" rx="8"/>
+  <text class="t chip-main" x="678" y="426">swift-proxy · :8080</text>
+
+  <text class="t note" x="64" y="468">Bootstrap: keystone-manage bootstrap · service project “service” · admin role</text>
+
+  <!-- ================= NETWORK NODE ================= -->
+  <rect class="box" x="1040" y="180" width="520" height="310" rx="12"/>
+  <rect x="1040" y="180" width="520" height="5" rx="2.5" fill="#326CE5"/>
+  <text class="t title" x="1064" y="210">network01 · 10.10.10.31</text>
+  <text class="t sub" x="1064" y="230">north–south data path · namespaces · OVS</text>
+  <line x1="1064" y1="242" x2="1536" y2="242" stroke="#e6ecf4"/>
+
+  <rect class="chip" x="1064" y="256" width="472" height="44" rx="8"/>
+  <text class="t chip-main" x="1078" y="274">br-ex · provider bridge</text>
+  <text class="t chip-sub" x="1078" y="290">enp2s0 enslaved · bridge has no IP address</text>
+
+  <rect class="chip" x="1064" y="310" width="472" height="44" rx="8"/>
+  <text class="t chip-main" x="1078" y="328">neutron-l3-agent</text>
+  <text class="t chip-sub" x="1078" y="344">qrouter-* · SNAT + DNAT · floating IPs</text>
+
+  <rect class="chip" x="1064" y="364" width="472" height="44" rx="8"/>
+  <text class="t chip-main" x="1078" y="382">neutron-dhcp-agent</text>
+  <text class="t chip-sub" x="1078" y="398">qdhcp-* · dnsmasq · MTU 1450 on VXLAN</text>
+
+  <rect class="chip" x="1064" y="418" width="472" height="44" rx="8"/>
+  <text class="t chip-main" x="1078" y="436">neutron-metadata-agent</text>
+  <text class="t chip-sub" x="1078" y="452">169.254.169.254 · shared secret with Nova</text>
+
+  <!-- ================= COMPUTES ================= -->
+  <rect class="box" x="40" y="530" width="470" height="210" rx="12"/>
+  <rect x="40" y="530" width="470" height="5" rx="2.5" fill="#6b4fbb"/>
+  <text class="t title" x="64" y="560">compute01 · 10.10.10.21</text>
+  <text class="t sub" x="64" y="580">VXLAN endpoint · availability zone nova</text>
+
+  <rect class="chip" x="64" y="598" width="200" height="54" rx="8"/>
+  <text class="t chip-main" x="78" y="619">nova-compute</text>
+  <text class="t chip-sub" x="78" y="636">libvirt / KVM · qcow2</text>
+
+  <rect class="chip" x="280" y="598" width="206" height="54" rx="8"/>
+  <text class="t chip-main" x="294" y="619">OVS agent</text>
+  <text class="t chip-sub" x="294" y="636">br-int · br-tun · VXLAN</text>
+
+  <text class="t note" x="64" y="678">Instances on private 10.0.0.0/24; no provider bridge here.</text>
+  <text class="t note" x="64" y="697">Security groups enforced by OVS flows.</text>
+
+  <rect class="box" x="530" y="530" width="470" height="210" rx="12"/>
+  <rect x="530" y="530" width="470" height="5" rx="2.5" fill="#6b4fbb"/>
+  <text class="t title" x="554" y="560">compute02 · 10.10.10.22</text>
+  <text class="t sub" x="554" y="580">VXLAN endpoint · availability zone nova</text>
+
+  <rect class="chip" x="554" y="598" width="200" height="54" rx="8"/>
+  <text class="t chip-main" x="568" y="619">nova-compute</text>
+  <text class="t chip-sub" x="568" y="636">libvirt / KVM · qcow2</text>
+
+  <rect class="chip" x="770" y="598" width="206" height="54" rx="8"/>
+  <text class="t chip-main" x="784" y="619">OVS agent</text>
+  <text class="t chip-sub" x="784" y="636">br-int · br-tun · VXLAN</text>
+
+  <text class="t note" x="554" y="678">East–west traffic crosses br-tun and the</text>
+  <text class="t note" x="554" y="697">management underlay (UDP/4789).</text>
+
+  <!-- ================= STORAGE (CINDER) ================= -->
+  <rect class="box" x="1040" y="530" width="520" height="210" rx="12"/>
+  <rect x="1040" y="530" width="520" height="5" rx="2.5" fill="#2E8B57"/>
+  <text class="t title" x="1064" y="560">storage01 · 10.10.10.41</text>
+  <text class="t sub" x="1064" y="580">block storage · iSCSI target</text>
+
+  <rect class="chip" x="1064" y="598" width="220" height="54" rx="8"/>
+  <text class="t chip-main" x="1078" y="619">cinder-volume</text>
+  <text class="t chip-sub" x="1078" y="636">lvm-iscsi backend</text>
+
+  <rect class="chip" x="1300" y="598" width="236" height="54" rx="8"/>
+  <text class="t chip-main" x="1314" y="619">tgt · iSCSI :3260</text>
+  <text class="t chip-sub" x="1314" y="636">IQN ACL per compute</text>
+
+  <text class="t note" x="1064" y="678">VG cinder-volumes · one LV per volume</text>
+  <text class="t note" x="1064" y="697">target_ip_address = 10.10.10.41</text>
+
+  <!-- ================= SWIFT ================= -->
+  <rect class="box" x="40" y="800" width="1000" height="220" rx="12"/>
+  <rect x="40" y="800" width="1000" height="5" rx="2.5" fill="#2E8B57"/>
+  <text class="t title" x="64" y="830">Swift object store · 3 zones / 3 replicas</text>
+  <text class="t sub" x="64" y="850">Keystone auth · ring files in /etc/swift · devices mounted at /srv/node/d1</text>
+
+  <rect class="chip" x="64" y="866" width="200" height="64" rx="8"/>
+  <text class="t chip-main" x="78" y="887">swift-proxy · :8080</text>
+  <text class="t chip-sub" x="78" y="904">controller01</text>
+  <text class="t chip-sub" x="78" y="919">public / internal endpoint</text>
+
+  <rect class="chip" x="300" y="866" width="180" height="64" rx="8"/>
+  <text class="t chip-main" x="314" y="887">zone 1 · storage01</text>
+  <text class="t chip-sub" x="314" y="904">account 6202</text>
+  <text class="t chip-sub" x="314" y="919">container 6201 · object 6200</text>
+
+  <rect class="chip" x="520" y="866" width="180" height="64" rx="8"/>
+  <text class="t chip-main" x="534" y="887">zone 2 · compute01</text>
+  <text class="t chip-sub" x="534" y="904">account 6202</text>
+  <text class="t chip-sub" x="534" y="919">container 6201 · object 6200</text>
+
+  <rect class="chip" x="740" y="866" width="180" height="64" rx="8"/>
+  <text class="t chip-main" x="754" y="887">zone 3 · compute02</text>
+  <text class="t chip-sub" x="754" y="904">account 6202</text>
+  <text class="t chip-sub" x="754" y="919">container 6201 · object 6200</text>
+
+  <path class="repl" d="M480 898 H520" marker-start="url(#arrow-green)" marker-end="url(#arrow-green)"/>
+  <path class="repl" d="M700 898 H740" marker-start="url(#arrow-green)" marker-end="url(#arrow-green)"/>
+  <path class="repl" d="M830 930 C830 958 390 958 390 930" marker-start="url(#arrow-green)" marker-end="url(#arrow-green)"/>
+  <text class="t link" x="500" y="890" text-anchor="middle">rsync</text>
+  <text class="t link" x="720" y="890" text-anchor="middle">rsync</text>
+  <text class="t link" x="610" y="970" text-anchor="middle">rsync replication · TCP/873 · full mesh</text>
+  <text class="t note" x="64" y="995">1024 partitions · 3 replicas · min_part_hours 1 · ring files distributed to every node</text>
+
+  <!-- ================= LEGEND ================= -->
+  <rect class="box" x="1080" y="800" width="480" height="220" rx="12"/>
+  <text class="t title" x="1104" y="830">Legend</text>
+
+  <line class="data" x1="1104" y1="858" x2="1154" y2="858" marker-end="url(#arrow-blue)"/>
+  <text class="t note" x="1166" y="862">data plane — VXLAN, iSCSI</text>
+
+  <line class="mgmt" x1="1104" y1="890" x2="1154" y2="890" marker-end="url(#arrow-gray)"/>
+  <text class="t note" x="1166" y="894">management / API — 10.10.10.0/24</text>
+
+  <line class="repl" x1="1104" y1="922" x2="1154" y2="922" marker-end="url(#arrow-green)"/>
+  <text class="t note" x="1166" y="926">Swift replication — rsync</text>
+
+  <rect x="1104" y="944" width="12" height="12" rx="3" fill="#ED1844"/>
+  <text class="t note" x="1122" y="954">controller</text>
+  <rect x="1204" y="944" width="12" height="12" rx="3" fill="#326CE5"/>
+  <text class="t note" x="1222" y="954">network</text>
+  <rect x="1300" y="944" width="12" height="12" rx="3" fill="#6b4fbb"/>
+  <text class="t note" x="1318" y="954">compute</text>
+  <rect x="1400" y="944" width="12" height="12" rx="3" fill="#2E8B57"/>
+  <text class="t note" x="1418" y="954">storage / Swift</text>
+
+  <text class="t note" x="1104" y="986">OpenStack 2024.1 Caracal · Ubuntu 22.04 LTS</text>
+  <text class="t note" x="1104" y="1004">Neutron ML2/OVS · VXLAN VNI 1–1000 · flat provider</text>
+
+  <!-- ================= LINKS ================= -->
+  <!-- provider uplink -->
+  <path class="data" d="M1300 140 V180" marker-end="url(#arrow-blue)"/>
+  <text class="t link" x="1292" y="165" text-anchor="end">provider uplink</text>
+
+  <!-- controller <-> network (API/AMQP) -->
+  <path class="mgmt" d="M1000 340 H1040" marker-start="url(#arrow-gray)" marker-end="url(#arrow-gray)"/>
+  <text class="t link" x="1020" y="332" text-anchor="middle">API</text>
+
+  <!-- controller <-> computes -->
+  <path class="mgmt" d="M150 490 V530" marker-end="url(#arrow-gray)"/>
+  <path class="mgmt" d="M650 490 V530" marker-end="url(#arrow-gray)"/>
+
+  <!-- controller -> storage (management, routed around the network node) -->
+  <path class="mgmt" d="M1000 300 H1018 V730 H1040" marker-end="url(#arrow-gray)"/>
+
+  <!-- network -> VXLAN underlay -> computes -->
+  <path class="data" d="M1200 490 V512"/>
+  <path class="data" d="M275 512 H1200"/>
+  <path class="data" d="M275 512 V530" marker-end="url(#arrow-blue)"/>
+  <path class="data" d="M765 512 V530" marker-end="url(#arrow-blue)"/>
+  <text class="t link" x="620" y="505" text-anchor="middle">VXLAN underlay · UDP/4789 · VNI 1–1000</text>
+
+  <!-- storage <-> compute02 iSCSI -->
+  <path class="data" d="M1000 660 H1040" marker-start="url(#arrow-blue)" marker-end="url(#arrow-blue)"/>
+
+  <!-- controller -> Swift proxy / object API -->
+  <path class="mgmt" d="M40 430 H18 V880 H40" marker-end="url(#arrow-gray)"/>
+  <text class="t link" x="12" y="655" text-anchor="middle" transform="rotate(-90 12 655)">object-store API</text>
+</svg>

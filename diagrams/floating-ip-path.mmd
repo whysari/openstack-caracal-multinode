@@ -1,0 +1,16 @@
+sequenceDiagram
+    autonumber
+    participant U as Operator 192.168.100.50
+    participant B as network01 · br-ex
+    participant R as qrouter namespace
+    participant T as VXLAN underlay
+    participant C as compute01 · br-int
+    participant V as cirros instance 10.0.0.12
+
+    U->>B: ping 192.168.100.150
+    B->>R: flat provider port (untagged)
+    Note over R: DNAT 192.168.100.150 → 10.0.0.12<br/>SNAT return traffic
+    R->>T: route 10.0.0.0/24
+    T->>C: VXLAN encap (VNI for private net)
+    C->>V: deliver via tap + OVS security group flows
+    V-->>U: reply (reverse path)

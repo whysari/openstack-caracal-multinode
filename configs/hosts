@@ -1,0 +1,15 @@
+# /etc/hosts — identical on all five nodes
+127.0.0.1       localhost
+127.0.1.1       $(hostname)
+
+# OpenStack management network
+10.10.10.11     controller01
+10.10.10.21     compute01
+10.10.10.22     compute02
+10.10.10.31     network01
+10.10.10.41     storage01
+
+# IPv6 defaults
+::1             localhost ip6-localhost ip6-loopback
+ff02::1         ip6-allnodes
+ff02::2         ip6-allrouters
