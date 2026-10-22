@@ -462,8 +462,8 @@ through the Keystone-authenticated proxy.</sub>
 <tr>
 <td width="50%">
 <img src="docs/images/lab/09-api-access.png" alt="Horizon API access page" width="100%">
-<br><sub><b>API access</b> — the service catalog (<code>Displaying 7 items</code>) with the
-compute, identity, image, network, placement and volume endpoints.</sub>
+<br><sub><b>API access</b> — the service catalog (<code>Displaying 7 items</code>); the visible
+rows show the compute, identity, image, network, placement and volume endpoints.</sub>
 </td>
 <td width="50%">
 <img src="docs/images/lab/11-instances.png" alt="Horizon instances list" width="100%">
