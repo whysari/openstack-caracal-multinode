@@ -1,4 +1,4 @@
-﻿# 🔄 Dual-Agent Synchronization Bus (Mac Architect ➔ Windows Executor)
+# 🔄 Dual-Agent Synchronization Bus (Mac Architect ➔ Windows Executor)
 
 This file coordinates execution between:
 - **Mac Agent (Antigravity):** Architecture, step-by-step runbook design, Linux/SDN/OpenStack verification analysis, and interview preparation.
@@ -6,50 +6,69 @@ This file coordinates execution between:
 
 ---
 
-## 🎯 CURRENT TASK: Step 01 ➔ Live Environment Discovery & Base Verification
+## 🎯 CURRENT TASK: Step 02 ➔ Static Networking, Root LVM Expansion & Week 1 Linux Internals (Cgroups v2 + Cinder LVM)
 **Target:** Windows Agent  
-**Status:** `COMPLETED_WINDOWS_EXECUTION` (Awaiting Mac Architect Step 02)
+**Status:** `PENDING_WINDOWS_EXECUTION`
 
 ### Instructions for Windows Agent:
-1. Ensure the 3 cloned VMs (`controller`, `compute01`, `compute02`) are powered on and reachable. (Completed ✅)
-2. Collect the exact current state of the 3 VMs (whether already partially configured or fresh clones) and write the raw terminal outputs into `evidence/00-env-discovery.txt`. (Completed ✅)
-3. Update the **Status Report from Windows Agent** section below. (Completed ✅)
-4. Commit and push back to `main`. (Completed ✅)
+
+Execute the following tasks across the 3 VMs (`controller`, `compute01`, `compute02`) and capture all verification outputs into **`evidence/01-week1-linux-lvm-cgroups.txt`**:
+
+#### Part A: Node Identity, Root Filesystem Expansion & Static 3-Plane Networking
+1. **Root LV Expansion (Critical before Docker/Kolla):**
+   - Currently `ubuntu--vg-ubuntu--lv` is only `11.5G` out of `23G` on `sda3`. On **all 3 nodes**, expand it to 100% of the free VG space:
+     ```bash
+     sudo lvextend -l +100%FREE -r /dev/ubuntu-vg/ubuntu-lv
+     ```
+2. **Unique Hostnames & Machine IDs:**
+   - Set hostnames: `controller`, `compute01`, `compute02` (`sudo hostnamectl set-hostname <name>`).
+   - Ensure unique `/etc/machine-id` and SSH host keys on the clones.
+3. **Clean `/etc/hosts` on All 3 Nodes:**
+   ```text
+   127.0.0.1 localhost
+   10.10.10.11 controller
+   10.10.10.21 compute01
+   10.10.10.22 compute02
+   ```
+   *(Remove the old `network01` and `storage01` lines and update `127.0.1.1` to the node's actual hostname).*
+4. **Static Netplan Configuration (`/etc/netplan/01-netcfg.yaml`, remove `50-cloud-init.yaml`):**
+   - **`controller`:**
+     - `ens33` (Mgmt/API): `10.10.10.11/24`, default route via `10.10.10.2`, DNS `8.8.8.8, 1.1.1.1`
+     - `ens34` (Tunnel/Overlay): `10.10.20.11/24`
+     - `ens32` (External Provider `br-ex`): `dhcp4: no`, `dhcp6: no`, brought `UP` with no IP (`sudo ip link set ens32 up` / Netplan `activation-mode: always` or unaddressed)
+   - **`compute01`:**
+     - `ens33`: `10.10.10.21/24`, default route via `10.10.10.2`, DNS `8.8.8.8, 1.1.1.1`
+     - `ens34`: `10.10.20.21/24`
+     - `ens32`: `dhcp4: no`, `dhcp6: no`, UP with no IP
+   - **`compute02`:**
+     - `ens33`: `10.10.10.22/24`, default route via `10.10.10.2`, DNS `8.8.8.8, 1.1.1.1`
+     - `ens34`: `10.10.20.22/24`
+     - `ens32`: `dhcp4: no`, `dhcp6: no`, UP with no IP
+5. **Internal SSH Mesh:**
+   - Generate an ed25519 keypair for `sysadmin` (and `root`) on `controller` and authorize it across `controller`, `compute01`, and `compute02` so `controller` can SSH without password to all 3 nodes by hostname and IP.
+   - Verify connectivity across both `10.10.10.x` (Management) and `10.10.20.x` (Tunnel) networks.
+
+#### Part B: Week 1 Linux Internals Drills (LVM for Cinder & Cgroups v2 / OOM Killer)
+1. **Cinder Block Storage LVM Provisioning on `controller` (`/dev/sdb` - 20G):**
+   - Run `sudo pvcreate /dev/sdb` and `sudo vgcreate cinder-volumes /dev/sdb`.
+   - **Hands-on LV Lifecycle Check:** Create a 1G test logical volume (`sudo lvcreate -L 1G -n lv_smoke_test cinder-volumes`), format with `mkfs.ext4`, inspect with `sudo pvs`, `sudo vgs`, `sudo lvs`, and then remove the test LV (`sudo lvremove -y /dev/cinder-volumes/lv_smoke_test`) so the full 20G `cinder-volumes` VG remains clean and ready for Kolla-Ansible Cinder!
+2. **Cgroups v2 & Kernel OOM-Killer Drill on `compute01`:**
+   - Verify Cgroups v2 unified hierarchy (`mount | grep cgroup2` and `cat /sys/fs/cgroup/cgroup.controllers`).
+   - Trigger a deterministic Cgroup v2 OOM-kill using `systemd-run`:
+     ```bash
+     sudo systemd-run --scope -p MemoryMax=32M -p MemorySwapMax=0M -p CPUQuota=50% \
+       python3 -c "a = bytearray(64 * 1024 * 1024)" || true
+     ```
+   - Capture the resulting Linux kernel OOM-killer trace (`sudo journalctl -k --no-pager | grep -E -i "oom|killed process|memory" | tail -n 20`).
+
+#### Part C: Record Evidence & Sync
+1. Save all structured terminal outputs (Part A + Part B) into **`evidence/01-week1-linux-lvm-cgroups.txt`**.
+2. Check off **Step 02** in `README.md` if completed cleanly.
+3. Update the **Status Report from Windows Agent** section below, commit, and push to `origin main`.
 
 ---
 
 ## 📡 STATUS REPORT FROM WINDOWS AGENT
 
-- **Last Updated:** 2026-11-05 07:54:00 UTC+08
-- **OS & Kernel:** Ubuntu 24.04.5 LTS (Noble Numbat), Linux kernel `6.8.0-147-generic`
-- **CPU & Hardware Virtualization:**
-  - Intel Core i5-9400F (2 vCPUs assigned per node)
-  - **Nested VT-x Status:** `/dev/kvm` exists and is fully accessible on all 3 nodes (`controller`, `compute01`, `compute02`) ✅
-- **Memory & Swap:**
-  - `controller`: 5.0 GiB RAM (465 MiB used, 4.6 GiB free) + `/dev/zram0` (256 MB lz4 compressed swap)
-  - `compute01`: 2.5 GiB RAM (362 MiB used, 2.1 GiB free) + `/dev/zram0` (256 MB lz4 compressed swap)
-  - `compute02`: 2.5 GiB RAM (370 MiB used, 2.1 GiB free) + `/dev/zram0` (256 MB lz4 compressed swap)
-- **VMware Subnets & Node Addressing:**
-  - **Management Network (`VMnet8` NAT - 10.10.10.0/24, Gateway 10.10.10.2):**
-    - `controller`: Current DHCP `10.10.10.129` (Planned static in hosts: `10.10.10.11`)
-    - `compute01`: Current DHCP `10.10.10.130` (Planned static in hosts: `10.10.10.21`)
-    - `compute02`: Current DHCP `10.10.10.131` (Planned static in hosts: `10.10.10.22`)
-    - `kolla_internal_vip_address`: Planned `10.10.10.250` (or `10.10.10.10`)
-  - **Tunnel / Overlay Network (`VMnet2` Host-Only - 10.10.20.0/24):** No IPs assigned yet (Planned `.11`, `.21`, `.22`)
-  - **Provider / External Network (`VMnet3` Host-Only - 10.10.30.0/24):** Host adapter at `10.10.30.1`, ready for Floating IPs
-- **NIC Names on VMs:**
-  - `network_interface` (Management & Internet): **`ens33`** (UP, DHCP)
-  - `tunnel_interface` (VXLAN / Geneve data plane): **`ens34`** (UP, unaddressed)
-  - `neutron_external_interface` (Provider / Floating IPs): **`ens32`** (DOWN, unaddressed, ready for OVS `br-ex`)
-- **Block Storage & Extra Disk for Cinder (`cinder-volumes`):**
-  - `sda` on all nodes: 25 GB (OS disk with LVM `ubuntu-lv` on `/`)
-  - **`sdb` on `controller`:** Dedicated **20 GB raw disk** detected! Ready for `pvcreate /dev/sdb && vgcreate cinder-volumes /dev/sdb` ✅
-- **Installed Packages & Progress Check:**
-  - Passwordless sudo configured for `sysadmin`
-  - Base packages installed: `curl`, `vim`, `git`, `htop`, `net-tools`, `open-vm-tools`, `zram-tools`
-  - Docker / Ansible / Kolla / OVS: Not installed yet
-  - Windows host SSH public key injected into all 3 nodes (`authorized_keys`)
-  - Full raw command outputs saved to `evidence/00-env-discovery.txt`
-- **Blockers / Notes for Mac Agent:**
-  - No blockers! All 3 VMs are responsive, performant, and have `/dev/kvm` hardware acceleration enabled.
-  - Ready for Step 02: Specify whether we should lock in static Netplan IPs (`10.10.10.11/21/22`) and hostnames first, or proceed directly to Docker / Kolla-Ansible / Cinder LVM prep.
+- **Last Updated:** 2026-11-05 07:54:00 UTC+08 (Step 01 Completed; Step 02 Pending)
+- **Step 02 Execution Summary:** *(Windows Agent: update here after completing Step 02)*

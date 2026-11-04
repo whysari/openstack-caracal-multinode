@@ -1,20 +1,8 @@
-# Evidence
+# Live Cluster Evidence Logs
 
-Verification output captured with [`scripts/30-collect-evidence.sh`](../scripts/30-collect-evidence.sh).
-Each run creates `YYYYMMDDTHHMMSSZ-<hostname>/` containing plain-text command output:
+All files in this directory are raw, unedited terminal outputs captured directly from the 3-node Ubuntu 24.04.5 LTS OpenStack Caracal cluster (`controller`, `compute01`, `compute02`).
 
-| File | What it proves |
-|---|---|
-| `token.sha256` | Keystone issued a token (hash only, no credential) |
-| `compute-service-list.txt` | Nova services enabled and up |
-| `network-agent-list.txt` | Every Neutron agent alive |
-| `volume-service-list.txt` | Cinder scheduler + volume up |
-| `server-list.txt`, `network-list.txt`, `router-list.txt` | Tenant resources exist |
-| `ovs-vsctl-show.txt`, `ovs-bridges.txt` | Bridge/tunnel topology on that host |
-| `netns.txt` | Router/DHCP namespaces on the network node |
-| `ip-routes.txt`, `ip-addresses.txt` | Host networking |
-| `swift-rings.txt` | Ring layout: zones, devices, replicas |
-| `journal-*.txt` | Last 200 lines of each service log |
-
-Commit the directory for the run referenced in the README. Do not commit `admin-openrc`,
-passwords, private keys, or the full token (the script stores only a SHA-256 of it).
+| File | Stage | Description |
+| :--- | :--- | :--- |
+| [`00-env-discovery.txt`](00-env-discovery.txt) | Step 01 | Initial 3-VM discovery: OS/Kernel (`6.8.0-147-generic`), Nested KVM (`/dev/kvm`), ZRAM swap, 3 NICs (`ens33`, `ens34`, `ens32`), and 20GB `sdb` disk on `controller`. |
+| `01-week1-linux-lvm-cgroups.txt` | Step 02 | Static Netplan networking (`10.10.10.0/24` & `10.10.20.0/24`), root LVM expansion, Cinder `cinder-volumes` VG creation, and Cgroups v2 / Kernel OOM-killer verification. |
