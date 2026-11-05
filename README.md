@@ -21,8 +21,8 @@ flowchart TB
     subgraph MGMT["Management & API Plane -- ens33 (VMnet8 NAT: 10.10.10.0/24, GW: 10.10.10.2)"]
         VIP["Kolla Internal VIP (HAProxy / Keepalived)<br/>10.10.10.250"]
         CTRL["controller (10.10.10.11)<br/>5.0 GiB RAM | 2 vCPU | sda 25G + sdb 20G<br/>Keystone, Glance, Placement, Nova Control,<br/>Neutron Server/L3/DHCP, Cinder LVM, MariaDB, RabbitMQ, Horizon"]
-        COMP1["compute01 (10.10.10.21)<br/>2.5 GiB RAM | 2 vCPU (Nested KVM) | sda 25G<br/>nova-compute, nova-libvirt, openvswitch-agent<br/>Workload: cirros-vm-01"]
-        COMP2["compute02 (10.10.10.22)<br/>2.5 GiB RAM | 2 vCPU (Nested KVM) | sda 25G<br/>nova-compute, nova-libvirt, openvswitch-agent<br/>Workload: cirros-vm-02"]
+        COMP1["compute01 (10.10.10.21)<br/>2.5 GiB RAM | 2 vCPU (Nested KVM) | sda 25G<br/>nova-compute, nova-libvirt, openvswitch-agent<br/>Workload: cirros-vm-01 (192.168.100.237 / FIP 10.10.30.132 / vdb 1G)"]
+        COMP2["compute02 (10.10.10.22)<br/>2.5 GiB RAM | 2 vCPU (Nested KVM) | sda 25G<br/>nova-compute, nova-libvirt, openvswitch-agent<br/>Workload: cirros-vm-02 (192.168.100.218)"]
     end
 
     subgraph TUN["Tunnel / Overlay Plane -- ens34 (VMnet2 Host-Only: 10.10.20.0/24, VXLAN UDP 4789)"]
@@ -32,7 +32,7 @@ flowchart TB
     end
 
     subgraph EXT["External / Provider Plane -- ens32 (VMnet3: 10.10.30.0/24, OVS br-ex)"]
-        HOST_GW["Windows Host Adapter (10.10.30.1)"] <--> BREX["OVS br-ex (ens32 unaddressed)<br/>Floating IP Pool: 10.10.30.100 - 10.10.30.150"]
+        HOST_GW["Windows Host Adapter (10.10.30.1)"] <--> BREX["OVS br-ex (ens32 unaddressed)<br/>Router GW: 10.10.30.142 | Floating IP: 10.10.30.132"]
     end
 ```
 
@@ -41,8 +41,8 @@ flowchart TB
 | Hostname | Role(s) | RAM / Swap | vCPU | Mgmt IP (`ens33`) | Tunnel IP (`ens34`) | External NIC (`ens32`) | Storage Disks |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | **`controller`** | Control, Network, Storage (`controller@lvm-1`) | 5.0 GiB + zram | 2 (VT-x) | `10.10.10.11/24` (VIP `.250`) | `10.10.20.11/24` | Bridged in `br-ex` | `sda` (23G Root LV) + `sdb` (20G `cinder-volumes` VG) |
-| **`compute01`** | Hypervisor #1 (KVM) + OVS Agent | 2.5 GiB + zram | 2 (VT-x) | `10.10.10.21/24` | `10.10.20.21/24` | Bridged in `br-ex` | `sda` (23G Root LV + Nova instances) |
-| **`compute02`** | Hypervisor #2 (KVM) + OVS Agent | 2.5 GiB + zram | 2 (VT-x) | `10.10.10.22/24` | `10.10.20.22/24` | Bridged in `br-ex` | `sda` (23G Root LV + Nova instances) |
+| **`compute01`** | Hypervisor #1 (KVM) + OVS Agent | 2.5 GiB + zram | 2 (VT-x) | `10.10.10.21/24` | `10.10.20.21/24` | Bridged in `br-ex` | `sda` (23G Root LV + `cirros-vm-01` + `/dev/vdb`) |
+| **`compute02`** | Hypervisor #2 (KVM) + OVS Agent | 2.5 GiB + zram | 2 (VT-x) | `10.10.10.22/24` | `10.10.20.22/24` | Bridged in `br-ex` | `sda` (23G Root LV + `cirros-vm-02`) |
 
 ---
 
@@ -54,7 +54,8 @@ flowchart TB
 | **02. Linux Cgroups v2 & Cinder LVM** | [`docs/02-linux-cgroups-and-lvm.md`](docs/02-linux-cgroups-and-lvm.md) | [`evidence/01-week1-linux-lvm-cgroups.txt`](evidence/01-week1-linux-lvm-cgroups.txt) | `[VERIFIED]` |
 | **03. Linux SDN, Namespaces & VXLAN** | [`docs/03-sdn-namespaces-vxlan.md`](docs/03-sdn-namespaces-vxlan.md) | [`evidence/02-week2-sdn-vxlan-mtu.txt`](evidence/02-week2-sdn-vxlan-mtu.txt) | `[VERIFIED]` |
 | **04. Kolla-Ansible Multinode Deploy** | [`docs/04-kolla-ansible-deployment.md`](docs/04-kolla-ansible-deployment.md) | [`evidence/03-kolla-control-plane.txt`](evidence/03-kolla-control-plane.txt) | `[VERIFIED]` |
-| **05. Workloads & Outage Drills** | `docs/05-workloads-and-failure-drills.md` *(in progress)* | `evidence/04-workloads-and-drills.txt` | `[IN PROGRESS]` |
+| **05. Workloads & Outage Drills** | [`docs/05-workloads-and-failure-drills.md`](docs/05-workloads-and-failure-drills.md) | [`evidence/04-workloads-and-drills.txt`](evidence/04-workloads-and-drills.txt) | `[VERIFIED]` |
+| **06. Troubleshooting & STAR Cases** | [`docs/06-troubleshooting-and-interview-star.md`](docs/06-troubleshooting-and-interview-star.md) | All Evidence Logs (`00`--`04`) | `[VERIFIED]` |
 
 ---
 
@@ -73,7 +74,7 @@ flowchart TB
 - [x] **Step 04 -- Week 3 Kolla-Ansible Multinode Deployment (OpenStack 2025.2 Flamingo):** -> [`evidence/03-kolla-control-plane.txt`](evidence/03-kolla-control-plane.txt)
   - Deployed 37 control-plane containers on `controller` and 9 compute/SDN containers each on `compute01` and `compute02` with `failed=0`
   - Verified HAProxy/Keepalived VIP `10.10.10.250`, Keystone, Glance, Placement, Nova (`compute01` & `compute02` UP), Neutron (6 OVS/L3/DHCP/Metadata agents UP, `br-int`/`br-tun`/`br-ex` plumbed), Cinder (`controller@lvm-1` UP), and Horizon HTTP 200 OK
-- [ ] **Step 05 -- Workload Verification & Failure Drills (Week 4):**
-  - Upload CirrOS image to Glance, create Provider (`public-net` on `10.10.30.0/24`) and Self-Service VXLAN (`private-net` on `192.168.100.0/24`) networks, Neutron router, Security Groups, and SSH Keypair
-  - Launch `cirros-vm-01` on `compute01` and `cirros-vm-02` on `compute02`
-  - Verify cross-node VXLAN East-West traffic, Floating IP North-South ping/SSH, Cinder iSCSI volume attach (`/dev/vdb`), and failure/recovery drills
+- [x] **Step 05 -- Workload Verification & Failure Drills (Week 4):** -> [`evidence/04-workloads-and-drills.txt`](evidence/04-workloads-and-drills.txt)
+  - Uploaded `cirros-0.6.2` to Glance, created `public-net` (`10.10.30.0/24` flat `physnet1`) and `private-net` (`192.168.100.0/24` VXLAN), and attached `demo-router` (`qrouter-fd19fb5e...`)
+  - Booted `cirros-vm-01` (`192.168.100.237`, Floating IP `10.10.30.132`) on `compute01` and `cirros-vm-02` (`192.168.100.218`) on `compute02`
+  - Verified North-South Floating IP ping/SSH (`0% loss`), East-West cross-node VXLAN ping (`192.168.100.237 -> 192.168.100.218`, `0% loss`, `MTU 1450`), Cinder 1 GiB thin-LV iSCSI attach (`/dev/vdb`), and OVS control-plane vs. data-plane outage resilience drill
