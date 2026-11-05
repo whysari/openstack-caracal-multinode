@@ -1,88 +1,126 @@
-# Multi-Node OpenStack Private Cloud Architecture
+# OpenStack Multi-Node Private Cloud — Manual Baseline to Kolla-Ansible Production Architecture
 
-![OpenStack](https://img.shields.io/badge/OpenStack-2025.2_Flamingo-ED1944?style=for-the-badge&logo=openstack&logoColor=white)
-![Kolla-Ansible](https://img.shields.io/badge/Kolla--Ansible-21.3.0-EE0000?style=for-the-badge&logo=ansible&logoColor=white)
-![Ubuntu](https://img.shields.io/badge/Ubuntu-24.04_LTS_(Noble)-E95420?style=for-the-badge&logo=ubuntu&logoColor=white)
-![Docker](https://img.shields.io/badge/Containers-Docker_Engine-2496ED?style=for-the-badge&logo=docker&logoColor=white)
-![KVM](https://img.shields.io/badge/Hypervisor-KVM_/_QEMU-0078D4?style=for-the-badge&logo=linux&logoColor=white)
-![Open vSwitch](https://img.shields.io/badge/SDN-Open_vSwitch_/_VXLAN-10B981?style=for-the-badge)
+A hands-on multi-node OpenStack private-cloud engineering repository documenting **two complete generations of deployment**:
 
-A production-modeled, 3-node **OpenStack 2025.2 (Flamingo)** private cloud deployed via **Kolla-Ansible** on **Ubuntu 24.04.5 LTS (`Linux 6.8.0-147-generic`)**. The cluster implements High-Availability API load balancing (**Keepalived + HAProxy + ProxySQL**), hardware-accelerated **KVM/QEMU** compute nodes, **Neutron ML2/Open vSwitch** Software-Defined Networking with cross-node **VXLAN (`UDP 4789`, `MTU 1450`)** tenant overlays and flat provider networks (`br-ex`), and **Cinder LVM/iSCSI** persistent block storage.
+1. **Generation 2 — Containerized Multi-Plane Build (OpenStack 2025.2 Flamingo + Kolla-Ansible on Ubuntu 24.04.5 LTS):** Three nodes (`controller`, `compute01`, `compute02`) segmented across **three dedicated network planes** (`ens33` Management + HAProxy/Keepalived VIP `10.10.10.250`, `ens34` VXLAN Tunnel `MTU 1450`, and `ens32` Flat Provider `br-ex`), with **both KVM hypervisors active**, cross-node East–West VXLAN verification, North–South Floating IP SSH, Cinder LVM thin-pool iSCSI `/dev/vdb` volume attachment, Cgroups v2 `CONSTRAINT_MEMCG` isolation, and OVS control-plane vs. data-plane fault-injection drills.
+2. **Generation 1 — Hand-Built Package Baseline (OpenStack 2024.1 Caracal on Ubuntu 22.04 LTS):** Package-by-package baseline across five logical roles (`controller`, `compute1`, `compute2`, `block`, `object`) with manual `.conf` wiring, Open vSwitch bridges, Cinder LVM/iSCSI, and a 4-device Swift object ring.
 
----
+Every configuration file, engineering runbook, and raw terminal verification capture (`evidence/`) is committed so the entire architecture can be inspected and reproduced rather than taken on trust.
 
-## Visual Dashboard Showcase (Horizon GUI)
-
-| Neutron SDN Topology (`public-net` -> `demo-router` -> `private-net`) | Multi-Node Instances (`compute01` & `compute02`) |
-| :---: | :---: |
-| ![Network Topology](docs/images/01-network-topology.png) | ![Instances](docs/images/02-instances-multinode.png) |
-| **KVM Hypervisors (`compute01` & `compute02`)** | **Cinder LVM Block Volumes (`/dev/vdb` Attached)** |
-| ![Hypervisors](docs/images/03-hypervisors-compute.png) | ![Cinder Volumes](docs/images/04-cinder-volumes.png) |
-
-![System Services & Network Agents](docs/images/05-system-services.png)
+![Ubuntu](https://img.shields.io/badge/Ubuntu-24.04_LTS_%7C_22.04_LTS-E95420?logo=ubuntu&logoColor=white)
+![OpenStack](https://img.shields.io/badge/OpenStack-2025.2_Flamingo_%7C_2024.1_Caracal-ED1844?logo=openstack&logoColor=white)
+![Kolla-Ansible](https://img.shields.io/badge/Kolla--Ansible-21.3.0_(Dockerized)-EE0000?logo=ansible&logoColor=white)
+![Neutron](https://img.shields.io/badge/Neutron-ML2_%2B_OVS_VXLAN-326CE5)
+![Storage](https://img.shields.io/badge/Storage-Cinder_LVM%2FiSCSI_%2B_Swift-2E8B57)
+![License](https://img.shields.io/badge/License-MIT-blue)
+[![GitHub](https://img.shields.io/badge/GitHub-whysari%2Fopenstack--caracal--multinode-181717?logo=github)](https://github.com/whysari/openstack-caracal-multinode)
 
 ---
 
-## 1. Infrastructure Topology & Network Segmentation
+## At a glance: Generation 1 (Manual Baseline) vs. Generation 2 (Kolla-Ansible Upgrade)
 
-The cluster is segmented into three isolated network planes across every node to separate control-plane API traffic, East-West VXLAN tenant tunnels, and North-South external provider routing:
+| Dimension | Generation 1 (Hand-Built Baseline) | Generation 2 (Kolla-Ansible Multi-Plane Upgrade) |
+|---|---|---|
+| **Release & OS** | OpenStack 2024.1 Caracal on Ubuntu 22.04 LTS | **OpenStack 2025.2 Flamingo on Ubuntu 24.04.5 LTS (`6.8.0-147-generic`)** |
+| **Deployment Model** | Manual APT packages & hand-written `.conf` files | **Kolla-Ansible `21.3.0` (`ansible-core 2.19.15`), 55 Docker containers** |
+| **API High Availability** | Single controller IP (`192.168.100.24`) | **Keepalived + HAProxy + ProxySQL Virtual IP (`10.10.10.250/32`)** |
+| **Network Segmentation** | Single shared NIC (`192.168.100.0/24` on `br-ex`) | **3 Dedicated NICs per node:** `ens33` Mgmt (`10.10.10.0/24`), `ens34` VXLAN Tunnel (`10.10.20.0/24`), `ens32` Provider (`10.10.30.0/24` on `br-ex`) |
+| **Hypervisors Active** | `compute1` active (`compute2` offline in baseline capture) | **Both `compute01` (`10.10.10.21`) and `compute02` (`10.10.10.22`) `UP` (Nested KVM `/dev/kvm`)** |
+| **East–West Overlay** | VXLAN `br-tun` over shared subnet | **Dedicated `ens34` VXLAN mesh (`10.10.20.11/.21/.22`, `UDP 4789`, `MTU 1450` verified)** |
+| **North–South Routing** | Virtual router SNAT + Floating IPs `.101–.250` | **`qrouter-fd19fb5e...` (`10.10.30.142`) DNAT/SNAT + verified Floating IP `10.10.30.132` SSH** |
+| **Block Storage** | Cinder LVM/iSCSI (`cinder-volumes`) | **Cinder Thin-Pool LVM (`controller@lvm-1` on `/dev/sdb`, 20 GiB) attached to VM as `/dev/vdb`** |
+| **Verification Evidence** | 13 Horizon & CLI screenshots (`docs/images/lab/`) | **5 raw terminal verification logs ([`evidence/00..04.txt`](evidence/)) + 6 runbooks ([`docs/01..06.md`](docs/))** |
+
+### From the lab
+
+<img src="docs/images/lab/10-network-topology.png" alt="Horizon network topology from the lab" width="100%">
+
+*Live Horizon Network Topology view: external provider network connected through the Neutron virtual router to the self-service VXLAN tenant network and active guest instances.*
+
+---
+
+## Architecture
+
+### 1. Generation 2: Three-Plane Kolla-Ansible Topology (`10.10.10.0/24`, `10.10.20.0/24`, `10.10.30.0/24`)
 
 ```mermaid
 flowchart TB
-    subgraph MGMT["Management & API Plane -- ens33 (10.10.10.0/24)"]
+    subgraph MGMT["Management & API Plane — ens33 (10.10.10.0/24, GW: 10.10.10.2)"]
         VIP["HAProxy / Keepalived Virtual IP<br/>10.10.10.250"]
-        CTRL["controller (10.10.10.11)<br/>Control Plane | Neutron L3/DHCP | Cinder LVM (20 GiB)<br/>MariaDB, RabbitMQ, Memcached, Keystone, Glance,<br/>Placement, Nova-API/Scheduler, Neutron-Server, Horizon"]
-        COMP1["compute01 (10.10.10.21)<br/>KVM Hypervisor #1 | OVS Data Plane<br/>Instance: cirros-vm-01 (192.168.100.237 / FIP 10.10.30.132)"]
-        COMP2["compute02 (10.10.10.22)<br/>KVM Hypervisor #2 | OVS Data Plane<br/>Instance: cirros-vm-02 (192.168.100.218)"]
+        CTRL["controller (10.10.10.11)<br/>5.0 GiB RAM | 2 vCPU | sda 23G + sdb 20G<br/>37 Containers: Keystone, Glance, Placement, Nova Control,<br/>Neutron Server/L3/DHCP/Metadata/OVS, Cinder LVM, MariaDB, RabbitMQ, Horizon"]
+        COMP1["compute01 (10.10.10.21)<br/>2.5 GiB RAM | 2 vCPU (Nested KVM) | sda 23G<br/>9 Containers: nova-compute, nova-libvirt, openvswitch-agent, iscsid<br/>Workload: cirros-vm-01 (192.168.100.237 / FIP 10.10.30.132 / vdb 1G)"]
+        COMP2["compute02 (10.10.10.22)<br/>2.5 GiB RAM | 2 vCPU (Nested KVM) | sda 23G<br/>9 Containers: nova-compute, nova-libvirt, openvswitch-agent, iscsid<br/>Workload: cirros-vm-02 (192.168.100.218)"]
     end
 
-    subgraph TUN["Tunnel / Overlay Plane -- ens34 (10.10.20.0/24, VXLAN UDP 4789, Inner MTU 1450)"]
+    subgraph TUN["Tunnel / Overlay Plane — ens34 (10.10.20.0/24, VXLAN UDP 4789, Inner MTU 1450)"]
         CTRL_T["controller: 10.10.20.11"] <--> COMP1_T["compute01: 10.10.20.21"]
         CTRL_T <--> COMP2_T["compute02: 10.10.20.22"]
         COMP1_T <--> COMP2_T
     end
 
-    subgraph EXT["External / Provider Plane -- ens32 (10.10.30.0/24, OVS br-ex)"]
-        EXT_GW["External Gateway (10.10.30.1)"] <--> BREX["OVS br-ex (physnet1)<br/>Router SNAT GW: 10.10.30.142<br/>Floating IP Pool: 10.10.30.100 - 10.10.30.150"]
+    subgraph EXT["External / Provider Plane — ens32 (10.10.30.0/24, OVS br-ex)"]
+        HOST_GW["External Gateway (10.10.30.1)"] <--> BREX["OVS br-ex (physnet1)<br/>Router GW: 10.10.30.142 | Floating IP: 10.10.30.132"]
     end
 ```
 
-### Cluster Node Specifications
+### 2. Generation 1: Logical 5-Role Diagram
 
-| Node | Role(s) | CPU / Virtualization | RAM / Swap | Mgmt (`ens33`) | Tunnel (`ens34`) | Provider (`ens32`) | Storage Layout |
+![OpenStack five-role architecture](diagrams/architecture.svg)
+
+### Node Inventory (Generation 2 Live Cluster)
+
+| Hostname | Role(s) | RAM / Swap | vCPU | Mgmt IP (`ens33`) | Tunnel IP (`ens34`) | External NIC (`ens32`) | Storage Disks |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **`controller`** | Control Plane, Network Node, Block Storage (`controller@lvm-1`) | 2 vCPU (`VT-x`) | 5.0 GiB + `zram` | `10.10.10.11/24` (VIP `.250`) | `10.10.20.11/24` | OVS `br-ex` | `sda` (`23 GiB` OS) + `sdb` (`20 GiB` `cinder-volumes` VG) |
-| **`compute01`** | KVM/QEMU Hypervisor #1, OVS Agent | 2 vCPU (`VT-x` `/dev/kvm`) | 2.5 GiB + `zram` | `10.10.10.21/24` | `10.10.20.21/24` | OVS `br-ex` | `sda` (`23 GiB` OS + Nova ephemeral) |
-| **`compute02`** | KVM/QEMU Hypervisor #2, OVS Agent | 2 vCPU (`VT-x` `/dev/kvm`) | 2.5 GiB + `zram` | `10.10.10.22/24` | `10.10.20.22/24` | OVS `br-ex` | `sda` (`23 GiB` OS + Nova ephemeral) |
+| **`controller`** | Control, Network, Storage (`controller@lvm-1`) | 5.0 GiB + `zram` | 2 (`VT-x`) | `10.10.10.11/24` (VIP `.250`) | `10.10.20.11/24` | Bridged in `br-ex` | `sda` (23G Root LV) + `sdb` (20G `cinder-volumes` VG) |
+| **`compute01`** | Hypervisor #1 (KVM) + OVS Agent | 2.5 GiB + `zram` | 2 (`VT-x`) | `10.10.10.21/24` | `10.10.20.21/24` | Bridged in `br-ex` | `sda` (23G Root LV + `cirros-vm-01` + `/dev/vdb`) |
+| **`compute02`** | Hypervisor #2 (KVM) + OVS Agent | 2.5 GiB + `zram` | 2 (`VT-x`) | `10.10.10.22/24` | `10.10.20.22/24` | Bridged in `br-ex` | `sda` (23G Root LV + `cirros-vm-02`) |
 
 ---
 
-## 2. SDN Data-Plane & Storage Packet Path
+## How a Floating-IP & Cross-Node VXLAN Packet Moves
 
 ```mermaid
-flowchart LR
-    EXT["External Network<br/>10.10.30.0/24"] -->|Floating IP<br/>10.10.30.132| BREX["controller: br-ex<br/>(ens32)"]
-    BREX --> QROUTER["ip netns: qrouter-fd19fb5e...<br/>DNAT 10.10.30.132 -> 192.168.100.237"]
-    QROUTER --> CTRL_TUN["controller: br-tun<br/>vxlan-0a0a1415"]
-    CTRL_TUN -->|VXLAN UDP 4789<br/>10.10.20.11 -> 10.10.20.21| C1_TUN["compute01: br-tun<br/>(ens34)"]
-    C1_TUN --> C1_INT["compute01: br-int<br/>qvo2eb7fb00-41 (tag: 1)"]
-    C1_INT --> VM1["cirros-vm-01 (compute01)<br/>eth0: 192.168.100.237 (MTU 1450)<br/>vdb: 1 GiB Cinder iSCSI Volume"]
-    VM1 <-->|East-West VXLAN UDP 4789<br/>10.10.20.21 <-> 10.10.20.22| VM2["cirros-vm-02 (compute02)<br/>eth0: 192.168.100.218 (MTU 1450)"]
-```
+sequenceDiagram
+    autonumber
+    participant U as External Client (10.10.30.0/24)
+    participant B as controller: br-ex (ens32)
+    participant R as controller: qrouter-fd19fb5e...
+    participant T as controller: br-tun (10.10.20.11)
+    participant C1 as compute01: br-tun/br-int (10.10.20.21)
+    participant V1 as cirros-vm-01 (192.168.100.237)
+    participant C2 as compute02: br-tun/br-int (10.10.20.22)
+    participant V2 as cirros-vm-02 (192.168.100.218)
 
-1. **North-South Floating IP Routing (`10.10.30.132 -> 192.168.100.237`):**
-   - Ingress traffic arrives on `ens32` (`br-ex`) on `controller` and enters the `qrouter-fd19fb5e-4fb4-46c0-964c-417e737a2f19` network namespace via `qg-ffd42f43-ab` (`10.10.30.142`).
-   - Kernel `iptables` `PREROUTING`/`OUTPUT` DNAT translates `10.10.30.132` to `192.168.100.237` and forwards the packet out `qr-e86a4b9f-d5` (`192.168.100.1`) into `br-int` -> `br-tun` (`vxlan-0a0a1415`) over `ens34` (`10.10.20.11 -> 10.10.20.21`) to `compute01`.
-2. **East-West Cross-Hypervisor Overlay (`compute01 <-> compute02`):**
-   - Packets between `cirros-vm-01` (`192.168.100.237` on `compute01`) and `cirros-vm-02` (`192.168.100.218` on `compute02`) are encapsulated with a 50-byte VXLAN header (`8B VXLAN + 8B UDP 4789 + 20B IP + 14B Ethernet`) by `br-tun` and transmitted directly between `10.10.20.21` and `10.10.20.22`.
-3. **Cinder LVM/iSCSI Block Storage (`controller:/dev/sdb -> compute01:/dev/vdb`):**
-   - `cinder-volume` (`controller@lvm-1`) allocates thin Logical Volume `volume-acf33885-2cb2-4538-a420-2e542cc7f748` (`1.00 GiB`) inside `cinder-volumes-pool` on `/dev/sdb` and exports it via `tgtd` (iSCSI Target) to `compute01`'s `iscsid` initiator, where `nova_libvirt` attaches it to `cirros-vm-01` as `/dev/vdb`.
+    U->>B: ICMP/SSH to Floating IP 10.10.30.132
+    B->>R: Flat provider port qg-ffd42f43-ab (tag 1)
+    Note over R: iptables PREROUTING DNAT<br/>10.10.30.132 -> 192.168.100.237
+    R->>T: qr-e86a4b9f-d5 (192.168.100.1) -> patch-tun
+    T->>C1: VXLAN encap over ens34 (UDP 4789, 10.10.20.11 -> 10.10.20.21)
+    C1->>V1: Decap -> br-int (tag 1) -> qvo2eb7fb00-41 (MTU 1450)
+    V1-->>U: Return traffic (SNAT 192.168.100.237 -> 10.10.30.132)
+    V1->>C1: East-West ping to 192.168.100.218
+    C1->>C2: Direct Compute-to-Compute VXLAN (10.10.20.21 -> 10.10.20.22)
+    C2->>V2: Decap -> br-int (tag 1) -> qvo197a918b-53
+    V2-->>V1: East-West ICMP Echo Reply (1.06 ms RTT, 0% loss)
+```
 
 ---
 
-## 3. Live Cluster Verification
+## Live Cluster Verification (Generation 2 — OpenStack 2025.2 Flamingo)
 
-### 3.1 Multi-Node Compute Services & Neutron SDN Agents
+Full unedited terminal captures from all three nodes are stored in [`evidence/`](evidence/):
+
+| Stage | Engineering Runbook | Raw Verification Capture | Key Verified Proof |
+| :--- | :--- | :--- | :--- |
+| **01. Host & 3-Plane Network** | [`docs/01-host-and-network-setup.md`](docs/01-host-and-network-setup.md) | [`evidence/00-env-discovery.txt`](evidence/00-env-discovery.txt) | 3 Ubuntu 24.04.5 LTS nodes, `/dev/kvm` VT-x, 3 NICs (`ens33`, `ens34`, `ens32`), Root LV expanded `11.5G -> 23G`. |
+| **02. Cgroups v2 & Cinder LVM** | [`docs/02-linux-cgroups-and-lvm.md`](docs/02-linux-cgroups-and-lvm.md) | [`evidence/01-week1-linux-lvm-cgroups.txt`](evidence/01-week1-linux-lvm-cgroups.txt) | `cinder-volumes` 20 GiB VG on `/dev/sdb`; Cgroups v2 `MemoryMax=32M` kernel OOM-kill (`CONSTRAINT_MEMCG`). |
+| **03. Linux SDN & VXLAN Math** | [`docs/03-sdn-namespaces-vxlan.md`](docs/03-sdn-namespaces-vxlan.md) | [`evidence/02-week2-sdn-vxlan-mtu.txt`](evidence/02-week2-sdn-vxlan-mtu.txt) | Manual `ip netns`, `veth`, `vxlan100` (`UDP 4789`), FDB table, and `1450B` (`PASS`) vs `1500B` (`FAIL`) MTU proof. |
+| **04. Kolla-Ansible Deploy** | [`docs/04-kolla-ansible-deployment.md`](docs/04-kolla-ansible-deployment.md) | [`evidence/03-kolla-control-plane.txt`](evidence/03-kolla-control-plane.txt) | 55 containers deployed (`failed=0`), VIP `10.10.10.250`, 2 KVM hypervisors UP, 6 Neutron agents UP, Cinder LVM UP. |
+| **05. Workloads & Outage Drill** | [`docs/05-workloads-and-failure-drills.md`](docs/05-workloads-and-failure-drills.md) | [`evidence/04-workloads-and-drills.txt`](evidence/04-workloads-and-drills.txt) | `cirros-vm-01` (`compute01`, FIP `10.10.30.132`, `/dev/vdb` 1G) <-> `cirros-vm-02` (`compute02`) VXLAN ping + OVS fault drill. |
+| **06. STAR Case Studies** | [`docs/06-troubleshooting-and-interview-star.md`](docs/06-troubleshooting-and-interview-star.md) | All Evidence Logs (`00`–`04`) | 4 production troubleshooting case studies in STAR format. |
+
+### 1. Control Plane, Hypervisors & Neutron SDN Agents (`evidence/03-kolla-control-plane.txt`)
+
 ```text
 $ openstack compute service list
 +--------------------------------------+----------------+------------+----------+---------+-------+----------------------------+
@@ -105,9 +143,18 @@ $ openstack network agent list
 | ebc7f808-7c21-440a-ac02-a399ca5f6abe | Metadata agent     | controller | None              | :-)   | UP    | neutron-metadata-agent    |
 | fbb441b0-77ea-4a8a-8ed1-1407ced9fcaf | DHCP agent         | controller | nova              | :-)   | UP    | neutron-dhcp-agent        |
 +--------------------------------------+--------------------+------------+-------------------+-------+-------+---------------------------+
+
+$ openstack volume service list
++------------------+------------------+------+---------+-------+----------------------------+
+| Binary           | Host             | Zone | Status  | State | Updated At                 |
++------------------+------------------+------+---------+-------+----------------------------+
+| cinder-scheduler | controller       | nova | enabled | up    | 2026-11-05T04:08:09.000000 |
+| cinder-volume    | controller@lvm-1 | nova | enabled | up    | 2026-11-05T04:08:12.000000 |
++------------------+------------------+------+---------+-------+----------------------------+
 ```
 
-### 3.2 Workload Placement, Cinder Volume Attach & Cross-Node VXLAN Connectivity
+### 2. Multi-Node Instances, Cinder `/dev/vdb` Attach & Cross-Node VXLAN Ping (`evidence/04-workloads-and-drills.txt`)
+
 ```text
 $ openstack server list --long
 +--------------------------------------+--------------+--------+------------+-------------+-------------------------------------------+--------------+---------+-----------+-------------+
@@ -123,9 +170,7 @@ $ openstack volume list
 +--------------------------------------+-------------+--------+------+---------------------------------------+
 | acf33885-2cb2-4538-a420-2e542cc7f748 | demo-vol-01 | in-use |    1 | Attached to cirros-vm-01 on /dev/vdb  |
 +--------------------------------------+-------------+--------+------+---------------------------------------+
-```
 
-```text
 # SSH into cirros-vm-01 (compute01) via Floating IP 10.10.30.132, verify /dev/vdb, and ping cirros-vm-02 (compute02):
 $ ssh cirros@10.10.30.132 "hostname && ip -br a show eth0 && lsblk && ping -c 3 192.168.100.218"
 cirros-vm-01
@@ -145,30 +190,109 @@ PING 192.168.100.218 (192.168.100.218) 56(84) bytes of data.
 
 ---
 
-## 4. Key Engineering Highlights
+## Visual Lab Evidence Gallery (Generation 1 Baseline Captures)
 
-- **Control-Plane Memory Optimization (`10.0 GiB` Cluster Footprint):** Tuned `openstack_service_workers: "1"` and `openstack_service_rpc_workers: "1"` across all Gunicorn/uWSGI and Oslo RPC services, disabled Fluentd overhead, and configured `zram` (`lz4`) compressed swap to run 37 control-plane containers on `controller` and 2 KVM hypervisors with >2 GiB free RAM headroom.
-- **VXLAN 50-Byte Overhead & MTU 1450 Verification:** Empirically verified the `1450-byte` inner MTU boundary (`ping -M do -s 1422` PASS vs. `-s 1472` FAIL) across `ens34` (`MTU 1500`) to prevent silent TCP/TLS blackholes.
-- **Linux Kernel Cgroups v2 Isolation:** Validated per-scope memory ceilings (`MemoryMax`) and kernel `CONSTRAINT_MEMCG` OOM-killer behavior on `compute01`.
-- **Data-Plane Fault Isolation:** Demonstrated zero-packet-loss forwarding continuity through `openvswitch_vswitchd` kernel datapath flows while `neutron_openvswitch_agent` was stopped and restarted on `compute01`.
+These 12 captures from the Generation 1 baseline run illustrate the core OpenStack service verification gates, Horizon views, Swift object round-trip, and guest console checks:
+
+<table>
+<tr>
+<td width="50%">
+<img src="docs/images/lab/01-keystone-token.png" alt="Keystone token issue" width="100%">
+<br><sub><b>Keystone</b> — scoped token issue against identity endpoint <code>:5000/v3</code>.</sub>
+</td>
+<td width="50%">
+<img src="docs/images/lab/02-glance-image.png" alt="Glance image list" width="100%">
+<br><sub><b>Glance</b> — CirrOS qcow2 image registered and active in the image catalog.</sub>
+</td>
+</tr>
+<tr>
+<td width="50%">
+<img src="docs/images/lab/03-placement-check.png" alt="Placement upgrade check" width="100%">
+<br><sub><b>Placement</b> — <code>placement-status upgrade check</code> reporting success.</sub>
+</td>
+<td width="50%">
+<img src="docs/images/lab/04-nova-services.png" alt="Nova compute service list" width="100%">
+<br><sub><b>Nova</b> — conductor, scheduler, and compute hypervisor services registered.</sub>
+</td>
+</tr>
+<tr>
+<td width="50%">
+<img src="docs/images/lab/05-neutron-agents.png" alt="Neutron network agent list" width="100%">
+<br><sub><b>Neutron</b> — DHCP, L3, metadata, and Open vSwitch SDN agents reporting status.</sub>
+</td>
+<td width="50%">
+<img src="docs/images/lab/06-horizon-login.png" alt="Horizon login page" width="100%">
+<br><sub><b>Horizon</b> — OpenStack web dashboard login interface.</sub>
+</td>
+</tr>
+<tr>
+<td width="50%">
+<img src="docs/images/lab/07-cinder-services.png" alt="Cinder volume service list" width="100%">
+<br><sub><b>Cinder</b> — <code>cinder-scheduler</code> and LVM <code>cinder-volume</code> backend service status.</sub>
+</td>
+<td width="50%">
+<img src="docs/images/lab/08-swift-objects.png" alt="Swift object round-trip" width="100%">
+<br><sub><b>Swift</b> — <code>swift stat</code>, container creation, and object upload through Keystone auth.</sub>
+</td>
+</tr>
+<tr>
+<td width="50%">
+<img src="docs/images/lab/09-api-access.png" alt="Horizon API access page" width="100%">
+<br><sub><b>API Access</b> — Horizon service endpoint catalog across compute, identity, image, network, placement, and volume.</sub>
+</td>
+<td width="50%">
+<img src="docs/images/lab/11-instances.png" alt="Horizon instances list" width="100%">
+<br><sub><b>Instances</b> — Active CirrOS guest instance in Horizon Compute view.</sub>
+</td>
+</tr>
+<tr>
+<td width="50%">
+<img src="docs/images/lab/12-instance-detail.png" alt="Horizon instance detail" width="100%">
+<br><sub><b>Instance Detail</b> — Hypervisor placement and network interface confirmation in Horizon.</sub>
+</td>
+<td width="50%">
+<img src="docs/images/lab/13-instance-console.png" alt="Instance console ping test" width="100%">
+<br><sub><b>Console</b> — Outbound ICMP verification (<code>ping 8.8.8.8</code>) from the guest console through Neutron L3 SNAT.</sub>
+</td>
+</tr>
+</table>
 
 ---
 
-## 5. Repository Structure
+## Troubleshooting Reference
 
-```text
-.
-├── configs/
-│   ├── kolla/
-│   │   ├── globals.yml                           # Production Kolla-Ansible configuration
-│   │   └── multinode                             # 3-node Ansible inventory
-│   └── netplan/                                  # 3-plane static Netplan configurations
-├── docs/
-│   ├── 01-host-and-network-setup.md              # Host virtualization, LVM expansion & 3-NIC setup
-│   ├── 02-linux-cgroups-and-lvm.md               # Cgroups v2 OOM-killer & Cinder LVM provisioning
-│   ├── 03-sdn-namespaces-vxlan.md                # Linux namespaces, veth, VXLAN & MTU 1450 math
-│   ├── 04-kolla-ansible-deployment.md            # Containerized OpenStack 2025.2 deployment
-│   ├── 05-workloads-and-failure-drills.md        # Multi-node VMs, Floating IP, Cinder & outage drill
-│   └── 06-troubleshooting-and-interview-star.md  # Production troubleshooting STAR case studies
-└── evidence/                                     # Raw terminal verification logs from all 3 nodes
-```
+| Symptom | Likely Cause | Verification & Fix |
+|---|---|---|
+| Instance stuck `BUILD`, port `binding:failed` | OVS agent down or `bridge_mappings` mismatch | `openstack network agent list`, `sudo docker exec openvswitch_vswitchd ovs-vsctl show` |
+| Instance `ACTIVE` but no DHCP address | `qdhcp` namespace missing or `dnsmasq` unhealthy | `ip netns list`, `sudo docker logs neutron_dhcp_agent` |
+| Floating IP unreachable from host | `br-ex` physical port (`ens32`) down or missing route | `ip -br link show ens32`, `sudo ip netns exec qrouter-... iptables -t nat -S` |
+| Volume attach fails or stays `attaching` | `tgtd` / `iscsid` conflict or missing `cinder-volumes` VG | `sudo vgs cinder-volumes`, `sudo docker logs cinder_volume`, `sudo docker logs iscsid` |
+| Small pings work, SSH/TLS hangs | VXLAN 50-byte encapsulation exceeding 1500 underlay MTU | Verify guest `eth0` `mtu 1450`; test with `ping -M do -s 1422` vs `-s 1472` |
+| Container killed with Exit Code `137` | Cgroup v2 memory ceiling (`CONSTRAINT_MEMCG`) | `sudo dmesg -T \| grep -i oom-kill`; tune `openstack_service_workers: "1"` in `globals.yml` |
+
+Detailed STAR post-mortems: [`docs/06-troubleshooting-and-interview-star.md`](docs/06-troubleshooting-and-interview-star.md).
+
+---
+
+## Architecture Evolution & Roadmap
+
+- [x] Separate management (`ens33`), VXLAN tunnel (`ens34`), and external provider (`ens32`) networks onto dedicated NICs.
+- [x] Re-deploy with **Kolla-Ansible (`21.3.0`)** on **Ubuntu 24.04.5 LTS** (`OpenStack 2025.2 Flamingo`) with HAProxy + Keepalived VIP (`10.10.10.250`).
+- [x] Bring both KVM compute hypervisors (`compute01` and `compute02`) into active service and verify cross-node East–West VXLAN traffic.
+- [x] Verify end-to-end Floating IP SSH (`10.10.30.132`), Cinder LVM thin-pool volume attach (`/dev/vdb`), and OVS control-plane outage resilience.
+- [ ] Add Prometheus + Grafana + OpenStack Exporter for full-stack observability.
+- [ ] Provision tenant networks, security groups, and compute instances declaratively with Terraform (`openstack` provider).
+
+---
+
+## Author
+
+**Ragchaa Battsengel** — Ulaanbaatar, Mongolia
+
+- GitHub: [@whysari](https://github.com/whysari)
+- LinkedIn: [ragchaa-battsengel](https://www.linkedin.com/in/ragchaa-battsengel-79b6183bb)
+- Email: ari.whysari@gmail.com
+
+## License
+
+MIT — see [LICENSE](LICENSE).

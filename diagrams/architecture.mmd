@@ -1,0 +1,75 @@
+flowchart TB
+    subgraph EXT["Management + provider · 192.168.100.0/24"]
+        direction LR
+        GW["Gateway<br/>192.168.100.1"]
+        FIP["Floating IP pool<br/>192.168.100.101 – .250"]
+        OPS["Operator<br/>192.168.100.x"]
+    end
+
+    subgraph CTRL["controller · 192.168.100.24 · physical"]
+        direction LR
+        subgraph CP["Control plane + data"]
+            direction TB
+            API["Keystone · Glance · Placement<br/>Nova API / scheduler / conductor<br/>Cinder API / scheduler · Horizon"]
+            DATA[("MariaDB · RabbitMQ<br/>Memcached · Etcd")]
+            SWP["swift-proxy :8080"]
+        end
+        subgraph NET["Neutron network node"]
+            direction TB
+            BREX["br-ex · .24/24<br/>physical NIC enslaved"]
+            L3["L3 agent<br/>qrouter · SNAT / DNAT"]
+            DHCP["DHCP + metadata agents<br/>qdhcp · 169.254.169.254"]
+            OVS["OVS agent<br/>br-int · br-tun · VXLAN"]
+        end
+        API --- DATA
+        SWP --- DATA
+        BREX --- L3
+        L3 --- DHCP
+        L3 --- OVS
+    end
+
+    subgraph C1["compute1 · 192.168.100.25 · physical"]
+        direction TB
+        N1["nova-compute · KVM"]
+        O1["OVS agent<br/>br-int · br-tun"]
+        V1["selfservice-demo0<br/>172.16.1.49"]
+        N1 --- V1
+        N1 --- O1
+    end
+
+    subgraph C2["compute2 · 192.168.100.26 · physical"]
+        direction TB
+        N2["nova-compute · KVM"]
+        O2["OVS agent<br/>br-int · br-tun"]
+        NOTE2["stopped during the<br/>original demo"]
+        N2 --- O2
+        N2 -.- NOTE2
+    end
+
+    subgraph BLK["block · 192.168.100.27 · virtual"]
+        CINDER["cinder-volume<br/>VG cinder-volumes<br/>tgt iSCSI :3260"]
+    end
+
+    subgraph OBJ["object · 192.168.100.28 · virtual"]
+        SWIFT["Swift account / container / object<br/>/srv/node/1..4<br/>3 replicas · 1 zone"]
+    end
+
+    subgraph SS["selfservice · 172.16.1.0/24"]
+        ROUTER["router<br/>172.16.1.1"]
+        NETSS["VXLAN VNI 1–1000"]
+        ROUTER --- NETSS
+    end
+
+    GW --- BREX
+    BREX --- FIP
+    OPS -. "SSH / Horizon" .-> API
+    OVS <-->|"VXLAN underlay"| O1
+    OVS <-->|"VXLAN underlay"| O2
+    L3 <-->|"172.16.1.0/24"| ROUTER
+    ROUTER <-->|"VXLAN"| V1
+    SWP <-->|"Swift API"| SWIFT
+    CINDER <-->|"iSCSI 3260"| N1
+    API <-. "AMQP · SQL · REST" .-> C1
+    API <-. "AMQP · SQL · REST" .-> C2
+    API <-. "AMQP · SQL · REST" .-> BLK
+    API <-. "AMQP · SQL · REST" .-> OBJ
