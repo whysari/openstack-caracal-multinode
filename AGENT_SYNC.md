@@ -14,52 +14,53 @@
 ---
 
 ## CURRENT STEP: Step 04 -> Week 3 OpenStack Multi-Node Deployment via Kolla-Ansible
-**Status:** `IN_PROGRESS_HANDS_ON_EXECUTION` (Resolving dependency installation before bootstrap-servers and deploy)
+**Status:** `BLOCKED_ON_REGISTRY_404_AWAITING_MAC_ARCHITECT_GUIDANCE`
 
-### Field Progress & Troubleshooting Notes:
+### Field Progress & Verified Milestones:
 1. **Ansible Ping [VERIFIED]:**
    - All 4 targets (`localhost`, `controller`, `compute01`, `compute02`) return `SUCCESS` (`pong`) using `/etc/kolla/multinode`.
-2. **Ansible Version Gate [RESOLVED]:**
-   - Kolla-Ansible 2024.1 strictly requires `ansible-core >= 2.15, < 2.17`.
-   - Python 3.12 default pip pulled `2.17.14`. Resolved via `pip install "ansible-core>=2.16,<2.17"`.
-3. **OpenDev Git Branch Rename [WORKAROUND IDENTIFIED]:**
-   - Upstream OpenStack moved series 2024.1 (Caracal) from `stable/2024.1` to `unmaintained/2024.1`.
-   - `kolla-ansible install-deps` failed with `pathspec 'stable/2024.1' did not match any file(s) known to git`.
-   - Fix: Update `~/kolla-venv/share/kolla-ansible/requirements.yml` to point to `unmaintained/2024.1`, then run `kolla-ansible install-deps` to install role `openstack.kolla.baremetal`.
-4. **Ubuntu 24.04 (Noble) & Fluentd Resolution [VERIFIED]:**
-   - Error: `Ensure fluentd image is present for label check` failed with 404 on `quay.io/openstack.kolla/fluentd:2024.1-ubuntu-jammy`.
-   - Cause: Hosts are running **Ubuntu 24.04 (Noble)**, but Kolla 18 defaults `kolla_base_distro_version` to `jammy` (22.04).
-   - Solution:
-     1. Add `kolla_base_distro_version: "noble"` to `/etc/kolla/globals.yml` so all images target `2024.1-ubuntu-noble`.
-     2. Set `enable_fluentd: "no"` in `/etc/kolla/globals.yml` to skip central logging, avoiding the fluentd label check and saving 2-4 GB host RAM.
-5. **Mac Architect Globals [UPDATED]:**
-   - Synced `configs/kolla/globals.yml` with `kolla_base_distro_version: "noble"`, `enable_fluentd: "no"`, and worker limit `openstack_service_workers: "1"` for host RAM conservation.
+2. **Kolla Bootstrap-Servers [VERIFIED & COMPLETED]:**
+   - `kolla-ansible -i /etc/kolla/multinode bootstrap-servers` completed with `failed=0` across all 3 nodes (Docker Engine, kernel sysctl, user groups installed).
+3. **Kolla Prechecks [VERIFIED & COMPLETED]:**
+   - `kolla-ansible -i /etc/kolla/multinode prechecks` completed with `failed=0` (108 checks on controller, 39 on compute01, 39 on compute02).
+   - VIP `10.10.10.250`, network planes `ens33`/`ens34`/`ens32`, `/dev/kvm`, and Cinder LVM `cinder-volumes` all 100% verified.
 
-### Verification Checklist for Windows Agent (Run ONLY after User completes Step 04 `kolla-ansible post-deploy`):
-When the user finishes deploying OpenStack with Kolla-Ansible and asks you to verify, capture the following outputs into **`evidence/03-kolla-control-plane.txt`**:
-1. **Container & VIP Status across all 3 nodes:**
-   - `ip -br a show dev ens33` on `controller` (confirming Keepalived VIP `10.10.10.250/32` is bound on `ens33`)
-   - `sudo docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Image}}"` on `controller`, `compute01`, and `compute02`
-2. **OpenStack Control Plane & Agent CLI Verification (on `controller` using `/etc/kolla/admin-openrc.sh`):**
-   - `openstack endpoint list`
-   - `openstack service list`
-   - `openstack compute service list` (showing `nova-scheduler`, `nova-conductor` on `controller` and `nova-compute` `up`/`enabled` on both `compute01` and `compute02`)
-   - `openstack hypervisor list`
-   - `openstack network agent list` (showing Open vSwitch agent alive on `controller`, `compute01`, `compute02`, plus L3, DHCP, and Metadata agents alive on `controller`)
-   - `openstack volume service list` (showing `cinder-scheduler` and `cinder-volume` `controller@lvm` `up`/`enabled`)
-3. **Open vSwitch Bridge Inspection inside Docker Container:**
-   - `sudo docker exec openvswitch_vswitchd ovs-vsctl show` on `controller` and `compute01` (showing `br-int`, `br-tun` with VXLAN ports, and `br-ex` with `ens32`).
+---
+
+### Critical Field Roadblock: Quay.io 404 on 2024.1 Images
+During `kolla-ansible -i /etc/kolla/multinode deploy`, the play failed at handler:
+```text
+RUNNING HANDLER [common : Restart kolla-toolbox container]
+fatal: [controller]: FAILED! => docker.errors.NotFound: 404 Client Error: Not Found for url:
+http+docker://localhost/v1.56/images/create?tag=2024.1-ubuntu-noble&fromImage=quay.io%2Fopenstack.kolla%2Fkolla-toolbox
+("failed to resolve reference quay.io/openstack.kolla/kolla-toolbox:2024.1-ubuntu-noble: not found")
+```
+
+#### Registry Investigation Findings:
+- We inspected Quay.io's API (`https://quay.io/api/v1/repository/openstack.kolla/kolla-toolbox/tag/`).
+- Upstream OpenStack Kolla CI has pruned **all 2024.1 and 2024.2** image tags from `quay.io/openstack.kolla`.
+- The oldest Ubuntu Noble images currently hosted on Quay.io are:
+  - `2025.1-ubuntu-noble` (OpenStack 2025.1 / Epoxy)
+  - `2025.2-ubuntu-noble` (OpenStack 2025.2 / Flamingo)
+  - `2026.1-ubuntu-noble`
+- Verified: `quay.io/openstack.kolla/kolla-toolbox:2025.1-ubuntu-noble` and `nova-compute`, `keystone`, `glance-api`, etc. **DO EXIST** on Quay.io.
+
+#### Proposed Resolutions for Mac Architect:
+- **Solution 1 (Minimal Tag Override in globals.yml):**
+  Keep Kolla-Ansible 18.x in `kolla-venv`, but explicitly set the image tag in `/etc/kolla/globals.yml`:
+  ```yaml
+  openstack_tag: "2025.1-ubuntu-noble"
+  ```
+  This immediately unblocks `deploy` by pulling the live `2025.1-ubuntu-noble` containers.
+- **Solution 2 (Upgrade to Kolla-Ansible 2025.1 / Epoxy):**
+  In `kolla-venv`:
+  `pip install "kolla-ansible~=20.0"`
+  `openstack_release: "2025.1"`
+  This aligns the Ansible orchestration playbooks directly with the 2025.1 container images natively built for Ubuntu 24.04 (Noble).
 
 ---
 
 ## STATUS REPORT FROM WINDOWS AGENT
-- **Last Updated:** 2026-11-05 10:20:00 UTC+08
-- **Current Position:** Resolving `openstack.kolla.baremetal` dependency before `bootstrap-servers`.
-- **Next User Milestones:**
-  1. Run `kolla-ansible install-deps` (after fixing `requirements.yml`)
-  2. Copy `configs/kolla/globals.yml` to `/etc/kolla/globals.yml` & run `kolla-genpwd`
-  3. Run `kolla-ansible -i /etc/kolla/multinode bootstrap-servers`
-  4. Run `kolla-ansible -i /etc/kolla/multinode prechecks`
-  5. Run `kolla-ansible -i /etc/kolla/multinode deploy`
-  6. Run `kolla-ansible -i /etc/kolla/multinode post-deploy`
-  7. Step 4.6: Install `python-openstackclient` and verify live cloud
+- **Last Updated:** 2026-11-05 10:35:00 UTC+08
+- **Current Position:** `bootstrap-servers` and `prechecks` both passed 100% green. Blocked on `deploy` image pull for `kolla-toolbox`.
+- **Awaiting:** Mac Architect recommendation on Solution 1 vs Solution 2.
