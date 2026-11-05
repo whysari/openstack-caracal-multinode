@@ -31,11 +31,34 @@ Every configuration file, engineering runbook, and raw terminal verification cap
 | **Block Storage** | Cinder LVM/iSCSI (`cinder-volumes`) | **Cinder Thin-Pool LVM (`controller@lvm-1` on `/dev/sdb`, 20 GiB) attached to VM as `/dev/vdb`** |
 | **Verification Evidence** | 13 Horizon & CLI screenshots (`docs/images/lab/`) | **5 raw terminal verification logs ([`evidence/00..04.txt`](evidence/)) + 6 runbooks ([`docs/01..06.md`](docs/))** |
 
-### From the lab
+### From the Live Cluster (OpenStack 2025.2 Flamingo Horizon Dashboard)
 
-<img src="docs/images/lab/10-network-topology.png" alt="Horizon network topology from the lab" width="100%">
+<img src="docs/images/01-network-topology.png" alt="OpenStack 2025.2 Flamingo Horizon Network Topology" width="100%">
 
-*Live Horizon Network Topology view: external provider network connected through the Neutron virtual router to the self-service VXLAN tenant network and active guest instances.*
+*Live OpenStack 2025.2 (Flamingo) Horizon Network Topology (`http://10.10.10.250`): external provider network `public-net` (`10.10.30.0/24`) routed via `demo-router` (`10.10.30.142` / `192.168.100.1`) to VXLAN tenant network `private-net` (`192.168.100.0/24`) hosting `cirros-vm-01` (`compute01`) and `cirros-vm-02` (`compute02`).*
+
+<table>
+<tr>
+<td width="50%">
+<img src="docs/images/02-instances-multinode.png" alt="Multi-node instances in Horizon" width="100%">
+<br><sub><b>Multi-Node Instances</b> — <code>cirros-vm-01</code> (<code>compute01</code>, FIP <code>10.10.30.132</code>) and <code>cirros-vm-02</code> (<code>compute02</code>, <code>192.168.100.218</code>) both <code>Active</code>.</sub>
+</td>
+<td width="50%">
+<img src="docs/images/03-hypervisors-compute.png" alt="KVM Hypervisors in Horizon" width="100%">
+<br><sub><b>KVM Hypervisors</b> — Both <code>compute01</code> (<code>10.10.10.21</code>) and <code>compute02</code> (<code>10.10.10.22</code>) registered and active in Nova.</sub>
+</td>
+</tr>
+<tr>
+<td width="50%">
+<img src="docs/images/04-cinder-volumes.png" alt="Cinder LVM Volume in Horizon" width="100%">
+<br><sub><b>Cinder Block Storage</b> — 1 GiB LVM/iSCSI volume <code>demo-vol-01</code> (<code>In-Use</code>) attached to <code>cirros-vm-01</code> on <code>/dev/vdb</code>.</sub>
+</td>
+<td width="50%">
+<img src="docs/images/05-system-services.png" alt="OpenStack System Information in Horizon" width="100%">
+<br><sub><b>System Services</b> — Control-plane endpoints, compute services, and Neutron SDN agents healthy on VIP <code>10.10.10.250</code>.</sub>
+</td>
+</tr>
+</table>
 
 ---
 
