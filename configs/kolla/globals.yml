@@ -1,15 +1,14 @@
 ---
 # Kolla-Ansible Production Configuration (3-Node Cluster)
 # Target: controller (10.10.10.11), compute01 (10.10.10.21), compute02 (10.10.10.22)
-# Host OS: Ubuntu 24.04 LTS (Noble Numbat)
+# Host OS: Ubuntu 24.04 LTS (Noble Numbat) — Latest OpenStack Release
 
 workaround_ansible_issue_8743: yes
 config_strategy: "COPY_ALWAYS"
 
-# Distro & Release Specifications
+# Distro & Release Specifications (Latest OpenStack on Ubuntu 24.04 LTS Noble)
 kolla_base_distro: "ubuntu"
-kolla_base_distro_version: "noble"
-openstack_release: "2024.1"
+openstack_release: "2026.1"
 
 # Logging Optimization (Disable heavy Fluentd to save ~2-4 GB RAM on 16 GB host budget)
 enable_fluentd: "no"
