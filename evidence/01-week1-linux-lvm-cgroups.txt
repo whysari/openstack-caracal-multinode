@@ -1,0 +1,97 @@
+﻿================================================================================
+WEEK 1 VERIFICATION EVIDENCE: LINUX INTERNALS, LVM & CGROUPS V2
+Cluster: 3-Node OpenStack Caracal (controller, compute01, compute02)
+Timestamp: 2026-11-05 09:05:00 UTC+08
+Execution Mode: User Hands-On Verified by Windows Agent
+================================================================================
+
+################################################################################
+PART A: STATIC 3-PLANE NETWORKING & ROOT LVM EXPANSION
+################################################################################
+
+=== CONTROLLER (10.10.10.11) ===
+Hostname: controller
+Interfaces:
+  lo               UNKNOWN        127.0.0.1/8 ::1/128
+  ens32            UP             fe80::20c:29ff:fee2:55b1/64
+  ens33            UP             10.10.10.11/24 fe80::20c:29ff:fee2:559d/64
+  ens34            UP             10.10.20.11/24 fe80::20c:29ff:fee2:55a7/64
+Root LV Capacity (df -h /):
+  Filesystem                         Size  Used Avail Use% Mounted on
+  /dev/mapper/ubuntu--vg-ubuntu--lv   23G  4.9G   17G  23% /
+
+=== COMPUTE01 (10.10.10.21) ===
+Hostname: compute01
+Interfaces:
+  lo               UNKNOWN        127.0.0.1/8 ::1/128
+  ens32            UP             fe80::20c:29ff:fe9c:b994/64
+  ens33            UP             10.10.10.21/24 fe80::20c:29ff:fe9c:b980/64
+  ens34            UP             10.10.20.21/24 fe80::20c:29ff:fe9c:b98a/64
+Root LV Capacity (df -h /):
+  Filesystem                         Size  Used Avail Use% Mounted on
+  /dev/mapper/ubuntu--vg-ubuntu--lv   23G  4.9G   17G  23% /
+
+=== COMPUTE02 (10.10.10.22) ===
+Hostname: compute02
+Interfaces:
+  lo               UNKNOWN        127.0.0.1/8 ::1/128
+  ens32            UP             fe80::20c:29ff:fe57:5b81/64
+  ens33            UP             10.10.10.22/24 fe80::20c:29ff:fe57:5b6d/64
+  ens34            UP             10.10.20.22/24 fe80::20c:29ff:fe57:5b77/64
+Root LV Capacity (df -h /):
+  Filesystem                         Size  Used Avail Use% Mounted on
+  /dev/mapper/ubuntu--vg-ubuntu--lv   23G  4.9G   17G  23% /
+
+=== INTER-NODE CONNECTIVITY MATRIX (PING RTT) ===
+controller -> compute01 (Management Plane 10.10.10.21):
+  2 packets transmitted, 2 received, 0% packet loss, time 1057ms
+  rtt min/avg/max/mdev = 0.259/0.314/0.370/0.055 ms
+
+controller -> compute01 (Tunnel Overlay Plane 10.10.20.21):
+  2 packets transmitted, 2 received, 0% packet loss, time 1021ms
+  rtt min/avg/max/mdev = 0.245/0.256/0.268/0.011 ms
+
+controller -> compute02 (Management Plane 10.10.10.22):
+  2 packets transmitted, 2 received, 0% packet loss, time 1022ms
+  rtt min/avg/max/mdev = 0.272/0.288/0.304/0.016 ms
+
+controller -> compute02 (Tunnel Overlay Plane 10.10.20.22):
+  2 packets transmitted, 2 received, 0% packet loss, time 1022ms
+  rtt min/avg/max/mdev = 0.223/0.248/0.273/0.025 ms
+
+=== PASSWORDLESS SSH MESH (from controller) ===
+ssh compute01 hostname -> compute01 [PASS]
+ssh compute02 hostname -> compute02 [PASS]
+
+################################################################################
+PART B1: CONTROLLER CINDER LVM BLOCK STORAGE PROVISIONING (/dev/sdb)
+################################################################################
+Physical Volumes (sudo pvs):
+  PV         VG             Fmt  Attr PSize   PFree  
+  /dev/sda3  ubuntu-vg      lvm2 a--  <23.00g      0 
+  /dev/sdb   cinder-volumes lvm2 a--  <20.00g <20.00g
+
+Volume Groups (sudo vgs):
+  VG             #PV #LV #SN Attr   VSize   VFree  
+  cinder-volumes   1   0   0 wz--n- <20.00g <20.00g
+  ubuntu-vg        1   1   0 wz--n- <23.00g      0 
+
+Block Device Attributes (lsblk /dev/sdb):
+  NAME SIZE TYPE FSTYPE      MOUNTPOINT
+  sdb   20G disk LVM2_member
+
+################################################################################
+PART B2: COMPUTE01 CGROUPS V2 & KERNEL OOM-KILLER DETERMINISTIC DRILL
+################################################################################
+Cgroup v2 Unified Hierarchy Mount:
+  cgroup2 on /sys/fs/cgroup type cgroup2 (rw,nosuid,nodev,noexec,relatime,nsdelegate,memory_recursiveprot)
+
+Available Subsystem Controllers:
+  cpuset cpu io memory hugetlb pids rdma misc
+
+Kernel OOM-Killer Invocation & Constraint Trace:
+  [ 5603.364024] python3 invoked oom-killer: gfp_mask=0xcc0(GFP_KERNEL), order=0, oom_score_adj=0
+  [ 5603.364053]  oom_kill_process+0x118/0x280
+  [ 5603.364244] [  pid  ]   uid  tgid total_vm      rss rss_anon rss_file rss_shmem pgtables_bytes swapents oom_score_adj name
+  [ 5603.364248] oom-kill:constraint=CONSTRAINT_MEMCG,nodemask=(null),cpuset=/,mems_allowed=0,oom_memcg=/system.slice/run-re622fd26285244bea55dab31852ed168.scope,task_memcg=/system.slice/run-re622fd26285244bea55dab31852ed168.scope,task=python3,pid=2550,uid=0
+  [ 5603.364258] Memory cgroup out of memory: Killed process 2550 (python3) total-vm:83524kB, anon-rss:32512kB, file-rss:6656kB, shmem-rss:0kB, UID:0 pgtables:132kB oom_score_adj:0
