@@ -14,7 +14,20 @@
 ---
 
 ## CURRENT STEP: Step 04 -> Week 3 OpenStack Multi-Node Deployment via Kolla-Ansible
-**Status:** `AWAITING_USER_HANDS_ON_EXECUTION` (Step 03 Documented in `docs/03-sdn-namespaces-vxlan.md`; User now executing Step 04 hands-on)
+**Status:** `IN_PROGRESS_HANDS_ON_EXECUTION` (Resolving dependency installation before bootstrap-servers and deploy)
+
+### Field Progress & Troubleshooting Notes:
+1. **Ansible Ping [VERIFIED]:**
+   - All 4 targets (`localhost`, `controller`, `compute01`, `compute02`) return `SUCCESS` (`pong`) using `/etc/kolla/multinode`.
+2. **Ansible Version Gate [RESOLVED]:**
+   - Kolla-Ansible 2024.1 strictly requires `ansible-core >= 2.15, < 2.17`.
+   - Python 3.12 default pip pulled `2.17.14`. Resolved via `pip install "ansible-core>=2.16,<2.17"`.
+3. **OpenDev Git Branch Rename [WORKAROUND IDENTIFIED]:**
+   - Upstream OpenStack moved series 2024.1 (Caracal) from `stable/2024.1` to `unmaintained/2024.1`.
+   - `kolla-ansible install-deps` failed with `pathspec 'stable/2024.1' did not match any file(s) known to git`.
+   - Fix: Update `~/kolla-venv/share/kolla-ansible/requirements.yml` to point to `unmaintained/2024.1`, then run `kolla-ansible install-deps` to install role `openstack.kolla.baremetal`.
+4. **Mac Architect Globals [PULLED]:**
+   - Pulled `configs/kolla/globals.yml` (commit `57696cf`) with worker limit `openstack_service_workers: "1"` for host RAM conservation.
 
 ### Verification Checklist for Windows Agent (Run ONLY after User completes Step 04 `kolla-ansible post-deploy`):
 When the user finishes deploying OpenStack with Kolla-Ansible and asks you to verify, capture the following outputs into **`evidence/03-kolla-control-plane.txt`**:
@@ -34,5 +47,13 @@ When the user finishes deploying OpenStack with Kolla-Ansible and asks you to ve
 ---
 
 ## STATUS REPORT FROM WINDOWS AGENT
-- **Last Updated:** 2026-11-05 09:38:00 UTC+08 (Week 2 SDN Verified & Documented)
-- **Week 3 Kolla-Ansible Verification Status:** *(Pending user hands-on execution of Step 04)*
+- **Last Updated:** 2026-11-05 10:20:00 UTC+08
+- **Current Position:** Resolving `openstack.kolla.baremetal` dependency before `bootstrap-servers`.
+- **Next User Milestones:**
+  1. Run `kolla-ansible install-deps` (after fixing `requirements.yml`)
+  2. Copy `configs/kolla/globals.yml` to `/etc/kolla/globals.yml` & run `kolla-genpwd`
+  3. Run `kolla-ansible -i /etc/kolla/multinode bootstrap-servers`
+  4. Run `kolla-ansible -i /etc/kolla/multinode prechecks`
+  5. Run `kolla-ansible -i /etc/kolla/multinode deploy`
+  6. Run `kolla-ansible -i /etc/kolla/multinode post-deploy`
+  7. Step 4.6: Install `python-openstackclient` and verify live cloud
