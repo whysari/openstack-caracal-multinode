@@ -1,0 +1,314 @@
+================================================================================
+STEP 04 VERIFICATION EVIDENCE: KOLLA-ANSIBLE OPENSTACK CONTROL & DATA PLANE
+Release: OpenStack 2025.2 (Flamingo) on Ubuntu 24.04.5 LTS (Noble Numbat)
+Kolla-Ansible Version: 21.3.0 | Ansible Core: 2.19.15
+Cluster Topology:
+  - controller: 10.10.10.11 (Control Plane, Database, Messaging, Horizon, Cinder LVM)
+  - compute01:   10.10.10.21 (KVM/QEMU Hypervisor, OVS Data Plane)
+  - compute02:   10.10.10.22 (KVM/QEMU Hypervisor, OVS Data Plane)
+High Availability VIP: 10.10.10.250 (Keepalived + HAProxy on ens33)
+Timestamp: 2026-11-05 12:08:03 UTC+08
+Execution Mode: Windows Agent Orchestration & Live Node Verification
+================================================================================
+
+################################################################################
+PART 1: HIGH AVAILABILITY VIRTUAL IP (VIP) VERIFICATION
+################################################################################
+Command: ip -br a show dev ens33 (on controller)
+--------------------------------------------------------------------------------
+ens33            UP             10.10.10.11/24 10.10.10.250/32 fe80::20c:29ff:fee2:559d/64 
+
+################################################################################
+PART 2: RUNNING DOCKER CONTAINERS - CONTROLLER (10.10.10.11)
+################################################################################
+Command: sudo docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Image}}'
+--------------------------------------------------------------------------------
+NAMES                       STATUS                    IMAGE
+horizon                     Up 4 minutes (healthy)    quay.io/openstack.kolla/horizon:2025.2-ubuntu-noble
+heat_engine                 Up 5 minutes (healthy)    quay.io/openstack.kolla/heat-engine:2025.2-ubuntu-noble
+heat_api_cfn                Up 6 minutes (healthy)    quay.io/openstack.kolla/heat-api-cfn:2025.2-ubuntu-noble
+heat_api                    Up 6 minutes (healthy)    quay.io/openstack.kolla/heat-api:2025.2-ubuntu-noble
+neutron_metadata_agent      Up 7 minutes              quay.io/openstack.kolla/neutron-metadata-agent:2025.2-ubuntu-noble
+neutron_l3_agent            Up 8 minutes (healthy)    quay.io/openstack.kolla/neutron-l3-agent:2025.2-ubuntu-noble
+neutron_dhcp_agent          Up 8 minutes (healthy)    quay.io/openstack.kolla/neutron-dhcp-agent:2025.2-ubuntu-noble
+neutron_openvswitch_agent   Up 9 minutes (healthy)    quay.io/openstack.kolla/neutron-openvswitch-agent:2025.2-ubuntu-noble
+neutron_periodic_worker     Up 9 minutes (healthy)    quay.io/openstack.kolla/neutron-server:2025.2-ubuntu-noble
+neutron_rpc_server          Up 9 minutes (healthy)    quay.io/openstack.kolla/neutron-server:2025.2-ubuntu-noble
+neutron_server              Up 9 minutes (healthy)    quay.io/openstack.kolla/neutron-server:2025.2-ubuntu-noble
+nova_novncproxy             Up 22 minutes (healthy)   quay.io/openstack.kolla/nova-novncproxy:2025.2-ubuntu-noble
+nova_conductor              Up 23 minutes (healthy)   quay.io/openstack.kolla/nova-conductor:2025.2-ubuntu-noble
+nova_metadata               Up 26 minutes (healthy)   quay.io/openstack.kolla/nova-api:2025.2-ubuntu-noble
+nova_api                    Up 26 minutes (healthy)   quay.io/openstack.kolla/nova-api:2025.2-ubuntu-noble
+nova_scheduler              Up 26 minutes (healthy)   quay.io/openstack.kolla/nova-scheduler:2025.2-ubuntu-noble
+openvswitch_vswitchd        Up 29 minutes (healthy)   quay.io/openstack.kolla/openvswitch-vswitchd:2025.2-ubuntu-noble
+openvswitch_db              Up 30 minutes (healthy)   quay.io/openstack.kolla/openvswitch-db-server:2025.2-ubuntu-noble
+placement_api               Up 30 minutes (healthy)   quay.io/openstack.kolla/placement-api:2025.2-ubuntu-noble
+cinder_backup               Up 31 minutes (healthy)   quay.io/openstack.kolla/cinder-backup:2025.2-ubuntu-noble
+cinder_volume               Up 31 minutes (healthy)   quay.io/openstack.kolla/cinder-volume:2025.2-ubuntu-noble
+cinder_scheduler            Up 31 minutes (healthy)   quay.io/openstack.kolla/cinder-scheduler:2025.2-ubuntu-noble
+cinder_api                  Up 31 minutes (healthy)   quay.io/openstack.kolla/cinder-api:2025.2-ubuntu-noble
+glance_api                  Up 33 minutes (healthy)   quay.io/openstack.kolla/glance-api:2025.2-ubuntu-noble
+keystone                    Up 35 minutes (healthy)   quay.io/openstack.kolla/keystone:2025.2-ubuntu-noble
+keystone_fernet             Up 35 minutes (healthy)   quay.io/openstack.kolla/keystone-fernet:2025.2-ubuntu-noble
+keystone_ssh                Up 35 minutes (healthy)   quay.io/openstack.kolla/keystone-ssh:2025.2-ubuntu-noble
+rabbitmq                    Up 38 minutes (healthy)   quay.io/openstack.kolla/rabbitmq:2025.2-ubuntu-noble
+tgtd                        Up 39 minutes             quay.io/openstack.kolla/tgtd:2025.2-ubuntu-noble
+iscsid                      Up 39 minutes             quay.io/openstack.kolla/iscsid:2025.2-ubuntu-noble
+memcached                   Up 40 minutes (healthy)   quay.io/openstack.kolla/memcached:2025.2-ubuntu-noble
+mariadb                     Up 40 minutes (healthy)   quay.io/openstack.kolla/mariadb-server:2025.2-ubuntu-noble
+keepalived                  Up 42 minutes             quay.io/openstack.kolla/keepalived:2025.2-ubuntu-noble
+proxysql                    Up 42 minutes (healthy)   quay.io/openstack.kolla/proxysql:2025.2-ubuntu-noble
+haproxy                     Up 43 minutes (healthy)   quay.io/openstack.kolla/haproxy:2025.2-ubuntu-noble
+cron                        Up 44 minutes             quay.io/openstack.kolla/cron:2025.2-ubuntu-noble
+kolla_toolbox               Up 45 minutes             quay.io/openstack.kolla/kolla-toolbox:2025.2-ubuntu-noble
+
+################################################################################
+PART 3: RUNNING DOCKER CONTAINERS - COMPUTE01 (10.10.10.21)
+################################################################################
+Command: sudo docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Image}}'
+--------------------------------------------------------------------------------
+NAMES                       STATUS                    IMAGE
+neutron_openvswitch_agent   Up 8 minutes (healthy)    quay.io/openstack.kolla/neutron-openvswitch-agent:2025.2-ubuntu-noble
+nova_compute                Up 13 minutes (healthy)   quay.io/openstack.kolla/nova-compute:2025.2-ubuntu-noble
+nova_libvirt                Up 17 minutes (healthy)   quay.io/openstack.kolla/nova-libvirt:2025.2-ubuntu-noble
+nova_ssh                    Up 17 minutes (healthy)   quay.io/openstack.kolla/nova-ssh:2025.2-ubuntu-noble
+openvswitch_vswitchd        Up 29 minutes (healthy)   quay.io/openstack.kolla/openvswitch-vswitchd:2025.2-ubuntu-noble
+openvswitch_db              Up 30 minutes (healthy)   quay.io/openstack.kolla/openvswitch-db-server:2025.2-ubuntu-noble
+iscsid                      Up 39 minutes             quay.io/openstack.kolla/iscsid:2025.2-ubuntu-noble
+cron                        Up 44 minutes             quay.io/openstack.kolla/cron:2025.2-ubuntu-noble
+kolla_toolbox               Up 44 minutes             quay.io/openstack.kolla/kolla-toolbox:2025.2-ubuntu-noble
+
+################################################################################
+PART 4: RUNNING DOCKER CONTAINERS - COMPUTE02 (10.10.10.22)
+################################################################################
+Command: sudo docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Image}}'
+--------------------------------------------------------------------------------
+NAMES                       STATUS                    IMAGE
+neutron_openvswitch_agent   Up 8 minutes (healthy)    quay.io/openstack.kolla/neutron-openvswitch-agent:2025.2-ubuntu-noble
+nova_compute                Up 12 minutes (healthy)   quay.io/openstack.kolla/nova-compute:2025.2-ubuntu-noble
+nova_libvirt                Up 14 minutes (healthy)   quay.io/openstack.kolla/nova-libvirt:2025.2-ubuntu-noble
+nova_ssh                    Up 18 minutes (healthy)   quay.io/openstack.kolla/nova-ssh:2025.2-ubuntu-noble
+openvswitch_vswitchd        Up 29 minutes (healthy)   quay.io/openstack.kolla/openvswitch-vswitchd:2025.2-ubuntu-noble
+openvswitch_db              Up 29 minutes (healthy)   quay.io/openstack.kolla/openvswitch-db-server:2025.2-ubuntu-noble
+iscsid                      Up 39 minutes             quay.io/openstack.kolla/iscsid:2025.2-ubuntu-noble
+cron                        Up 44 minutes             quay.io/openstack.kolla/cron:2025.2-ubuntu-noble
+kolla_toolbox               Up 45 minutes             quay.io/openstack.kolla/kolla-toolbox:2025.2-ubuntu-noble
+
+################################################################################
+PART 5: KEYSTONE SERVICE CATALOG
+################################################################################
+Command: openstack service list
+--------------------------------------------------------------------------------
++----------------------------------+-----------+----------------+
+| ID                               | Name      | Type           |
++----------------------------------+-----------+----------------+
+| 07d5ec6b5a5641f9b1ee3f80fb259fbc | heat      | orchestration  |
+| 0ff71e7b8f754eb387535fa670bd2c5d | neutron   | network        |
+| 123c5e3598d54860964815d7b506ec06 | glance    | image          |
+| 435606d9db7743a182f189256d37ef36 | keystone  | identity       |
+| 96c75bdc177844b4855693bb214014d6 | cinderv3  | volumev3       |
+| 9ffe4c747a8c4cce8f4d9f4b0da4fa3b | cinder    | block-storage  |
+| b929c9f2bf4f44d58a027ad1a958e5d0 | nova      | compute        |
+| cbcf8389f2c24cb3aa07d4730e8afd3f | heat-cfn  | cloudformation |
+| ffa7e1172afe4c3092bf6af3b335035c | placement | placement      |
++----------------------------------+-----------+----------------+
+
+################################################################################
+PART 6: KEYSTONE ENDPOINTS (VIP 10.10.10.250)
+################################################################################
+Command: openstack endpoint list
+--------------------------------------------------------------------------------
++----------------------------------+-----------+--------------+----------------+---------+-----------+-------------------------------------------+
+| ID                               | Region    | Service Name | Service Type   | Enabled | Interface | URL                                       |
++----------------------------------+-----------+--------------+----------------+---------+-----------+-------------------------------------------+
+| 05c7707bb2144f6ca64bcec71e04073a | RegionOne | placement    | placement      | True    | internal  | http://10.10.10.250:8780                  |
+| 0bab6e091a7b4542b777aeb7639a48e3 | RegionOne | cinder       | block-storage  | True    | internal  | http://10.10.10.250:8776/v3               |
+| 239dc4e125f34be0a88903c79b3c1ac3 | RegionOne | neutron      | network        | True    | internal  | http://10.10.10.250:9696                  |
+| 428765b90afc480185f00116b3c657d8 | RegionOne | keystone     | identity       | True    | public    | http://10.10.10.250:5000                  |
+| 7d3424e972214a78b82c3022bff6f527 | RegionOne | nova         | compute        | True    | public    | http://10.10.10.250:8774/v2.1             |
+| 86c6c55ed6ec4c25a448f9433b55ec65 | RegionOne | heat-cfn     | cloudformation | True    | internal  | http://10.10.10.250:8000/v1               |
+| 8fb2879f1a2f4ef9b972156c392a274b | RegionOne | cinder       | block-storage  | True    | public    | http://10.10.10.250:8776/v3               |
+| 9f4e63a512654aaca1d2829618319136 | RegionOne | glance       | image          | True    | public    | http://10.10.10.250:9292                  |
+| a5c71f69d81c4468b0419d1c1b737246 | RegionOne | neutron      | network        | True    | public    | http://10.10.10.250:9696                  |
+| b8834aef9053499b812c3f53d2f0909e | RegionOne | cinderv3     | volumev3       | True    | public    | http://10.10.10.250:8776/v3/%(tenant_id)s |
+| bc348cd61fea4cbd98eddbbc0cda1986 | RegionOne | nova         | compute        | True    | internal  | http://10.10.10.250:8774/v2.1             |
+| c0e53c8c6af44bf780ba0427efb5ea22 | RegionOne | keystone     | identity       | True    | internal  | http://10.10.10.250:5000                  |
+| c63d952f521d43f5b9374e3fd1bf0be7 | RegionOne | heat         | orchestration  | True    | internal  | http://10.10.10.250:8004/v1/%(tenant_id)s |
+| d1e6ff6625014f70b53400ff60af0be1 | RegionOne | cinderv3     | volumev3       | True    | internal  | http://10.10.10.250:8776/v3/%(tenant_id)s |
+| d31d4e7eac294ea38bf0056f4b9f530f | RegionOne | glance       | image          | True    | internal  | http://10.10.10.250:9292                  |
+| e1c2f759c3ea478fae2fb35badaa377f | RegionOne | heat         | orchestration  | True    | public    | http://10.10.10.250:8004/v1/%(tenant_id)s |
+| ee43f50b93cb4a84b2d5f85dbbc62bbb | RegionOne | placement    | placement      | True    | public    | http://10.10.10.250:8780                  |
+| ef439bd9996e4faf83c43504497f75cf | RegionOne | heat-cfn     | cloudformation | True    | public    | http://10.10.10.250:8000/v1               |
++----------------------------------+-----------+--------------+----------------+---------+-----------+-------------------------------------------+
+
+################################################################################
+PART 7: NOVA COMPUTE SERVICE STATUS
+################################################################################
+Command: openstack compute service list
+--------------------------------------------------------------------------------
++--------------------------------------+----------------+------------+----------+---------+-------+----------------------------+
+| ID                                   | Binary         | Host       | Zone     | Status  | State | Updated At                 |
++--------------------------------------+----------------+------------+----------+---------+-------+----------------------------+
+| 8015d4d8-f2fe-46ac-8791-b18b815539e2 | nova-scheduler | controller | internal | enabled | up    | 2026-11-05T04:08:06.000000 |
+| 6849074c-0618-4e76-a0be-f166c0b2e124 | nova-conductor | controller | internal | enabled | up    | 2026-11-05T04:08:07.000000 |
+| 676b96b7-6aa0-4fe4-9921-800eba2c4c73 | nova-compute   | compute01  | nova     | enabled | up    | 2026-11-05T04:08:08.000000 |
+| dda5bbf5-9e78-44a2-af52-0bc5a02468f5 | nova-compute   | compute02  | nova     | enabled | up    | 2026-11-05T04:08:04.000000 |
++--------------------------------------+----------------+------------+----------+---------+-------+----------------------------+
+
+################################################################################
+PART 8: NOVA HYPERVISORS
+################################################################################
+Command: openstack hypervisor list
+--------------------------------------------------------------------------------
++--------------------------------------+---------------------+-----------------+-------------+-------+
+| ID                                   | Hypervisor Hostname | Hypervisor Type | Host IP     | State |
++--------------------------------------+---------------------+-----------------+-------------+-------+
+| 65daa0c6-dd30-5ae6-a246-92a786d774f3 | compute01           | QEMU            | 10.10.10.21 | up    |
+| 5fac062e-b5a2-5960-a42a-f8dddd9cc245 | compute02           | QEMU            | 10.10.10.22 | up    |
++--------------------------------------+---------------------+-----------------+-------------+-------+
+
+################################################################################
+PART 9: NEUTRON NETWORK AGENTS (SDN OVS + L3 + DHCP + METADATA)
+################################################################################
+Command: openstack network agent list
+--------------------------------------------------------------------------------
++--------------------------------------+--------------------+------------+-------------------+-------+-------+---------------------------+
+| ID                                   | Agent Type         | Host       | Availability Zone | Alive | State | Binary                    |
++--------------------------------------+--------------------+------------+-------------------+-------+-------+---------------------------+
+| 693b750b-7521-4f5b-be05-acdc94e37436 | Open vSwitch agent | controller | None              | :-)   | UP    | neutron-openvswitch-agent |
+| 728c624d-8d9a-4bd1-9fc0-452230b04b29 | Open vSwitch agent | compute02  | None              | :-)   | UP    | neutron-openvswitch-agent |
+| 7aa42616-7eef-4ffe-9d6f-a9f1bddc0ced | L3 agent           | controller | nova              | :-)   | UP    | neutron-l3-agent          |
+| 7bc2e4db-2bd5-4311-a767-e1c6019f06d0 | Open vSwitch agent | compute01  | None              | :-)   | UP    | neutron-openvswitch-agent |
+| ebc7f808-7c21-440a-ac02-a399ca5f6abe | Metadata agent     | controller | None              | :-)   | UP    | neutron-metadata-agent    |
+| fbb441b0-77ea-4a8a-8ed1-1407ced9fcaf | DHCP agent         | controller | nova              | :-)   | UP    | neutron-dhcp-agent        |
++--------------------------------------+--------------------+------------+-------------------+-------+-------+---------------------------+
+
+################################################################################
+PART 10: CINDER BLOCK STORAGE SERVICES (LVM /dev/sdb)
+################################################################################
+Command: openstack volume service list
+--------------------------------------------------------------------------------
++------------------+------------------+------+---------+-------+----------------------------+---------+---------------+
+| Binary           | Host             | Zone | Status  | State | Updated At                 | Cluster | Backend State |
++------------------+------------------+------+---------+-------+----------------------------+---------+---------------+
+| cinder-scheduler | controller       | nova | enabled | up    | 2026-11-05T04:08:09.000000 | None    | None          |
+| cinder-volume    | controller@lvm-1 | nova | enabled | up    | 2026-11-05T04:08:12.000000 | None    | None          |
+| cinder-backup    | controller       | nova | enabled | down  | 2026-11-05T03:36:59.000000 | None    | None          |
++------------------+------------------+------+---------+-------+----------------------------+---------+---------------+
+
+################################################################################
+PART 11: OPEN VSWITCH TOPOLOGY - CONTROLLER (br-int, br-tun, br-ex:ens32)
+################################################################################
+Command: sudo docker exec openvswitch_vswitchd ovs-vsctl show
+--------------------------------------------------------------------------------
+31158194-3223-42cf-be80-2d2d0b83be89
+    Manager "ptcp:6640:127.0.0.1"
+        is_connected: true
+    Bridge br-tun
+        Controller "tcp:127.0.0.1:6633"
+            is_connected: true
+        fail_mode: secure
+        datapath_type: system
+        Port br-tun
+            Interface br-tun
+                type: internal
+        Port patch-int
+            Interface patch-int
+                type: patch
+                options: {peer=patch-tun}
+    Bridge br-ex
+        Controller "tcp:127.0.0.1:6633"
+            is_connected: true
+        fail_mode: secure
+        datapath_type: system
+        Port br-ex
+            Interface br-ex
+                type: internal
+        Port ens32
+            Interface ens32
+        Port phy-br-ex
+            Interface phy-br-ex
+                type: patch
+                options: {peer=int-br-ex}
+    Bridge br-int
+        Controller "tcp:127.0.0.1:6633"
+            is_connected: true
+        fail_mode: secure
+        datapath_type: system
+        Port br-int
+            Interface br-int
+                type: internal
+        Port patch-tun
+            Interface patch-tun
+                type: patch
+                options: {peer=patch-int}
+        Port int-br-ex
+            Interface int-br-ex
+                type: patch
+                options: {peer=phy-br-ex}
+
+################################################################################
+PART 12: OPEN VSWITCH TOPOLOGY - COMPUTE01 (br-int, br-tun, br-ex:ens32)
+################################################################################
+Command: sudo docker exec openvswitch_vswitchd ovs-vsctl show
+--------------------------------------------------------------------------------
+b9c441b1-8271-4f04-bf07-537c71314fdd
+    Manager "ptcp:6640:127.0.0.1"
+        is_connected: true
+    Bridge br-ex
+        Controller "tcp:127.0.0.1:6633"
+            is_connected: true
+        fail_mode: secure
+        datapath_type: system
+        Port phy-br-ex
+            Interface phy-br-ex
+                type: patch
+                options: {peer=int-br-ex}
+        Port ens32
+            Interface ens32
+        Port br-ex
+            Interface br-ex
+                type: internal
+    Bridge br-int
+        Controller "tcp:127.0.0.1:6633"
+            is_connected: true
+        fail_mode: secure
+        datapath_type: system
+        Port patch-tun
+            Interface patch-tun
+                type: patch
+                options: {peer=patch-int}
+        Port br-int
+            Interface br-int
+                type: internal
+        Port int-br-ex
+            Interface int-br-ex
+                type: patch
+                options: {peer=phy-br-ex}
+    Bridge br-tun
+        Controller "tcp:127.0.0.1:6633"
+            is_connected: true
+        fail_mode: secure
+        datapath_type: system
+        Port br-tun
+            Interface br-tun
+                type: internal
+        Port patch-int
+            Interface patch-int
+                type: patch
+                options: {peer=patch-tun}
+
+################################################################################
+PART 13: HORIZON DASHBOARD HTTP PROBE (VIP 10.10.10.250:80)
+################################################################################
+Command: curl -I -s http://10.10.10.250/auth/login/
+--------------------------------------------------------------------------------
+HTTP/1.1 200 OK
+content-type: text/html; charset=utf-8
+expires: Thu, 05 Nov 2026 04:08:20 GMT
+cache-control: max-age=0, no-cache, no-store, must-revalidate, private
+vary: Cookie, Accept-Language
+x-frame-options: DENY
+content-language: en
+content-length: 9272
+set-cookie: csrftoken=gTSnNdmCwjw4sZ6Sv3vqhKs9Zf2HDmgH; Path=/; SameSite=Lax
