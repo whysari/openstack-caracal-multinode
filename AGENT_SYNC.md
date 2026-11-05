@@ -26,8 +26,14 @@
    - Upstream OpenStack moved series 2024.1 (Caracal) from `stable/2024.1` to `unmaintained/2024.1`.
    - `kolla-ansible install-deps` failed with `pathspec 'stable/2024.1' did not match any file(s) known to git`.
    - Fix: Update `~/kolla-venv/share/kolla-ansible/requirements.yml` to point to `unmaintained/2024.1`, then run `kolla-ansible install-deps` to install role `openstack.kolla.baremetal`.
-4. **Mac Architect Globals [PULLED]:**
-   - Pulled `configs/kolla/globals.yml` (commit `57696cf`) with worker limit `openstack_service_workers: "1"` for host RAM conservation.
+4. **Ubuntu 24.04 (Noble) & Fluentd Resolution [VERIFIED]:**
+   - Error: `Ensure fluentd image is present for label check` failed with 404 on `quay.io/openstack.kolla/fluentd:2024.1-ubuntu-jammy`.
+   - Cause: Hosts are running **Ubuntu 24.04 (Noble)**, but Kolla 18 defaults `kolla_base_distro_version` to `jammy` (22.04).
+   - Solution:
+     1. Add `kolla_base_distro_version: "noble"` to `/etc/kolla/globals.yml` so all images target `2024.1-ubuntu-noble`.
+     2. Set `enable_fluentd: "no"` in `/etc/kolla/globals.yml` to skip central logging, avoiding the fluentd label check and saving 2-4 GB host RAM.
+5. **Mac Architect Globals [UPDATED]:**
+   - Synced `configs/kolla/globals.yml` with `kolla_base_distro_version: "noble"`, `enable_fluentd: "no"`, and worker limit `openstack_service_workers: "1"` for host RAM conservation.
 
 ### Verification Checklist for Windows Agent (Run ONLY after User completes Step 04 `kolla-ansible post-deploy`):
 When the user finishes deploying OpenStack with Kolla-Ansible and asks you to verify, capture the following outputs into **`evidence/03-kolla-control-plane.txt`**:
