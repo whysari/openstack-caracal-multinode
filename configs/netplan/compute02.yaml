@@ -1,0 +1,21 @@
+network:
+  version: 2
+  renderer: networkd
+  ethernets:
+    ens33:
+      dhcp4: no
+      addresses:
+        - 10.10.10.22/24
+      routes:
+        - to: default
+          via: 10.10.10.2
+      nameservers:
+        addresses: [8.8.8.8, 1.1.1.1]
+    ens34:
+      dhcp4: no
+      addresses:
+        - 10.10.20.22/24
+    ens32:
+      dhcp4: no
+      dhcp6: no
+      activation-mode: always
