@@ -1,0 +1,378 @@
+================================================================================
+WEEK 4 DAY-2 VERIFICATION EVIDENCE: WORKLOADS, OVERLAY SDN & OUTAGE DRILL
+Topic: Multi-Node VM Placement, Floating IP, VXLAN East-West, Cinder LVM, OVS Fault Drill
+Cluster:
+  - controller: 10.10.10.11 (Keystone, Glance, Neutron L3/DHCP, Cinder LVM, Horizon)
+  - compute01:   10.10.10.21 (KVM/QEMU, cirros-vm-01)
+  - compute02:   10.10.10.22 (KVM/QEMU, cirros-vm-02)
+Timestamp: 2026-11-05 04:42:15 UTC
+Execution Mode: User Hands-On Verified by Windows Agent
+================================================================================
+
+################################################################################
+PART 1: GLANCE IMAGES & NOVA FLAVORS
+################################################################################
+=== OPENSTACK IMAGE LIST ===
++--------------------------------------+--------------+--------+
+| ID                                   | Name         | Status |
++--------------------------------------+--------------+--------+
+| 91c2a311-d411-45fa-8ec4-64e706220134 | cirros-0.6.2 | active |
++--------------------------------------+--------------+--------+
+
+=== OPENSTACK FLAVOR LIST ===
++----+---------+-----+------+-----------+-------+-----------+
+| ID | Name    | RAM | Disk | Ephemeral | VCPUs | Is Public |
++----+---------+-----+------+-----------+-------+-----------+
+| 1  | m1.tiny | 256 |    1 |         0 |     1 | True      |
++----+---------+-----+------+-----------+-------+-----------+
+
+################################################################################
+PART 2: NEUTRON SDN TOPOLOGY (NETWORKS, SUBNETS & ROUTER)
+################################################################################
+=== OPENSTACK NETWORK LIST ===
++--------------------------------------+-------------+--------------------------------------+
+| ID                                   | Name        | Subnets                              |
++--------------------------------------+-------------+--------------------------------------+
+| 02d642fb-8fd7-4b67-9cf6-27b456302e2d | private-net | 35f2cb8f-42b9-47cf-96ec-3b3e43d9907e |
+| ba632e7e-4d04-41fd-a19c-3bec129cf89c | public-net  | 93639537-8a22-459a-909f-3a1b73b8d9b5 |
++--------------------------------------+-------------+--------------------------------------+
+
+=== OPENSTACK SUBNET LIST ===
++--------------------------------------+----------------+--------------------------------------+------------------+
+| ID                                   | Name           | Network                              | Subnet           |
++--------------------------------------+----------------+--------------------------------------+------------------+
+| 35f2cb8f-42b9-47cf-96ec-3b3e43d9907e | private-subnet | 02d642fb-8fd7-4b67-9cf6-27b456302e2d | 192.168.100.0/24 |
+| 93639537-8a22-459a-909f-3a1b73b8d9b5 | public-subnet  | ba632e7e-4d04-41fd-a19c-3bec129cf89c | 10.10.30.0/24    |
++--------------------------------------+----------------+--------------------------------------+------------------+
+
+=== OPENSTACK ROUTER LIST ===
++--------------------------------------+-------------+--------+-------+----------------------------------+-------------+-------+
+| ID                                   | Name        | Status | State | Project                          | Distributed | HA    |
++--------------------------------------+-------------+--------+-------+----------------------------------+-------------+-------+
+| fd19fb5e-4fb4-46c0-964c-417e737a2f19 | demo-router | ACTIVE | UP    | 0965291f83874daf9ab83ce950c971d6 | False       | False |
++--------------------------------------+-------------+--------+-------+----------------------------------+-------------+-------+
+
+=== OPENSTACK ROUTER SHOW demo-router ===
++-------------------------+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| Field                   | Value                                                                                                                                                                                    |
++-------------------------+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| admin_state_up          | UP                                                                                                                                                                                       |
+| availability_zone_hints |                                                                                                                                                                                          |
+| availability_zones      | nova                                                                                                                                                                                     |
+| created_at              | 2026-11-05T04:24:30Z                                                                                                                                                                     |
+| description             |                                                                                                                                                                                          |
+| distributed             | False                                                                                                                                                                                    |
+| enable_ndp_proxy        | None                                                                                                                                                                                     |
+| external_gateway_info   | {"network_id": "ba632e7e-4d04-41fd-a19c-3bec129cf89c", "external_fixed_ips": [{"subnet_id": "93639537-8a22-459a-909f-3a1b73b8d9b5", "ip_address": "10.10.30.142"}], "enable_snat": true} |
+| flavor_id               | None                                                                                                                                                                                     |
+| ha                      | False                                                                                                                                                                                    |
+| id                      | fd19fb5e-4fb4-46c0-964c-417e737a2f19                                                                                                                                                     |
+| interfaces_info         | [{"port_id": "e86a4b9f-d5d7-44dc-9f10-7b42a7ab7022", "ip_address": "192.168.100.1", "subnet_id": "35f2cb8f-42b9-47cf-96ec-3b3e43d9907e"}]                                                |
+| name                    | demo-router                                                                                                                                                                              |
+| project_id              | 0965291f83874daf9ab83ce950c971d6                                                                                                                                                         |
+| revision_number         | 3                                                                                                                                                                                        |
+| routes                  |                                                                                                                                                                                          |
+| status                  | ACTIVE                                                                                                                                                                                   |
+| tags                    |                                                                                                                                                                                          |
+| updated_at              | 2026-11-05T04:24:49Z                                                                                                                                                                     |
++-------------------------+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+
+################################################################################
+PART 3: MULTI-NODE VM PLACEMENT & FLOATING IP ALLOCATION
+################################################################################
+=== OPENSTACK SERVER LIST --LONG ===
++--------------------------------------+--------------+--------+------------+-------------+-------------------------------------------+--------------+--------------------------------------+---------+-------------------+-----------+------------+--------------------------+-----------------+-------------+
+| ID                                   | Name         | Status | Task State | Power State | Networks                                  | Image Name   | Image ID                             | Flavor  | Availability Zone | Host      | Properties | Pinned Availability Zone | Scheduler Hints | Host Status |
++--------------------------------------+--------------+--------+------------+-------------+-------------------------------------------+--------------+--------------------------------------+---------+-------------------+-----------+------------+--------------------------+-----------------+-------------+
+| dd5278d2-d9a7-4993-b231-5ded1a26b829 | cirros-vm-02 | ACTIVE | None       | Running     | private-net=192.168.100.218               | cirros-0.6.2 | 91c2a311-d411-45fa-8ec4-64e706220134 | m1.tiny | nova              | compute02 |            | nova                     |                 | UP          |
+| 5f64ee18-3910-4d07-bece-3ee941b6889f | cirros-vm-01 | ACTIVE | None       | Running     | private-net=10.10.30.132, 192.168.100.237 | cirros-0.6.2 | 91c2a311-d411-45fa-8ec4-64e706220134 | m1.tiny | nova              | compute01 |            | nova                     |                 | UP          |
++--------------------------------------+--------------+--------+------------+-------------+-------------------------------------------+--------------+--------------------------------------+---------+-------------------+-----------+------------+--------------------------+-----------------+-------------+
+
+=== OPENSTACK FLOATING IP LIST ===
++--------------------------------------+---------------------+------------------+--------------------------------------+--------------------------------------+----------------------------------+
+| ID                                   | Floating IP Address | Fixed IP Address | Port                                 | Floating Network                     | Project                          |
++--------------------------------------+---------------------+------------------+--------------------------------------+--------------------------------------+----------------------------------+
+| f58c898f-30ba-4f25-938d-2343caa24d0a | 10.10.30.132        | 192.168.100.237  | 2eb7fb00-4102-4401-b1b5-98e6e61418b0 | ba632e7e-4d04-41fd-a19c-3bec129cf89c | 0965291f83874daf9ab83ce950c971d6 |
++--------------------------------------+---------------------+------------------+--------------------------------------+--------------------------------------+----------------------------------+
+
+################################################################################
+PART 4: LIVE SDN DATA PLANE - LINUX NETWORK NAMESPACES (CONTROLLER)
+################################################################################
+Command: ip netns (on controller)
+--------------------------------------------------------------------------------
+qrouter-fd19fb5e-4fb4-46c0-964c-417e737a2f19 (id: 2)
+qdhcp-02d642fb-8fd7-4b67-9cf6-27b456302e2d (id: 1)
+qdhcp-ba632e7e-4d04-41fd-a19c-3bec129cf89c (id: 0)
+
+################################################################################
+PART 5: OPEN VSWITCH DATA PLANE (DYNAMIC VXLAN TUNNELS & VM TAP PORTS)
+################################################################################
+=== OVS TOPOLOGY: CONTROLLER ===
+31158194-3223-42cf-be80-2d2d0b83be89
+    Manager "ptcp:6640:127.0.0.1"
+        is_connected: true
+    Bridge br-tun
+        Controller "tcp:127.0.0.1:6633"
+            is_connected: true
+        fail_mode: secure
+        datapath_type: system
+        Port vxlan-0a0a1415
+            Interface vxlan-0a0a1415
+                type: vxlan
+                options: {df_default="true", egress_pkt_mark="0", in_key=flow, local_ip="10.10.20.11", out_key=flow, remote_ip="10.10.20.21"}
+        Port vxlan-0a0a1416
+            Interface vxlan-0a0a1416
+                type: vxlan
+                options: {df_default="true", egress_pkt_mark="0", in_key=flow, local_ip="10.10.20.11", out_key=flow, remote_ip="10.10.20.22"}
+        Port br-tun
+            Interface br-tun
+                type: internal
+        Port patch-int
+            Interface patch-int
+                type: patch
+                options: {peer=patch-tun}
+    Bridge br-ex
+        Controller "tcp:127.0.0.1:6633"
+            is_connected: true
+        fail_mode: secure
+        datapath_type: system
+        Port br-ex
+            Interface br-ex
+                type: internal
+        Port ens32
+            Interface ens32
+        Port phy-br-ex
+            Interface phy-br-ex
+                type: patch
+                options: {peer=int-br-ex}
+    Bridge br-int
+        Controller "tcp:127.0.0.1:6633"
+            is_connected: true
+        fail_mode: secure
+        datapath_type: system
+        Port br-int
+            Interface br-int
+                type: internal
+        Port patch-tun
+            Interface patch-tun
+                type: patch
+                options: {peer=patch-int}
+        Port qg-ffd42f43-ab
+            tag: 1
+            Interface qg-ffd42f43-ab
+                type: internal
+        Port qr-e86a4b9f-d5
+            tag: 2
+            Interface qr-e86a4b9f-d5
+                type: internal
+        Port tap48fa3cc6-ef
+            tag: 1
+            Interface tap48fa3cc6-ef
+                type: internal
+        Port int-br-ex
+            Interface int-br-ex
+                type: patch
+                options: {peer=phy-br-ex}
+        Port tap234d410e-56
+            tag: 2
+            Interface tap234d410e-56
+                type: internal
+
+=== OVS TOPOLOGY: COMPUTE01 (cirros-vm-01 tap/qvo ports) ===
+b9c441b1-8271-4f04-bf07-537c71314fdd
+    Manager "ptcp:6640:127.0.0.1"
+        is_connected: true
+    Bridge br-ex
+        Controller "tcp:127.0.0.1:6633"
+            is_connected: true
+        fail_mode: secure
+        datapath_type: system
+        Port phy-br-ex
+            Interface phy-br-ex
+                type: patch
+                options: {peer=int-br-ex}
+        Port ens32
+            Interface ens32
+        Port br-ex
+            Interface br-ex
+                type: internal
+    Bridge br-int
+        Controller "tcp:127.0.0.1:6633"
+            is_connected: true
+        fail_mode: secure
+        datapath_type: system
+        Port patch-tun
+            Interface patch-tun
+                type: patch
+                options: {peer=patch-int}
+        Port br-int
+            Interface br-int
+                type: internal
+        Port qvo2eb7fb00-41
+            tag: 1
+            Interface qvo2eb7fb00-41
+        Port int-br-ex
+            Interface int-br-ex
+                type: patch
+                options: {peer=phy-br-ex}
+    Bridge br-tun
+        Controller "tcp:127.0.0.1:6633"
+            is_connected: true
+        fail_mode: secure
+        datapath_type: system
+        Port br-tun
+            Interface br-tun
+                type: internal
+        Port vxlan-0a0a140b
+            Interface vxlan-0a0a140b
+                type: vxlan
+                options: {df_default="true", egress_pkt_mark="0", in_key=flow, local_ip="10.10.20.21", out_key=flow, remote_ip="10.10.20.11"}
+        Port patch-int
+            Interface patch-int
+                type: patch
+                options: {peer=patch-tun}
+        Port vxlan-0a0a1416
+            Interface vxlan-0a0a1416
+                type: vxlan
+                options: {df_default="true", egress_pkt_mark="0", in_key=flow, local_ip="10.10.20.21", out_key=flow, remote_ip="10.10.20.22"}
+
+=== OVS TOPOLOGY: COMPUTE02 (cirros-vm-02 tap/qvo ports) ===
+56b14d9a-974a-4a46-908e-7c7d261816e3
+    Manager "ptcp:6640:127.0.0.1"
+        is_connected: true
+    Bridge br-int
+        Controller "tcp:127.0.0.1:6633"
+            is_connected: true
+        fail_mode: secure
+        datapath_type: system
+        Port patch-tun
+            Interface patch-tun
+                type: patch
+                options: {peer=patch-int}
+        Port int-br-ex
+            Interface int-br-ex
+                type: patch
+                options: {peer=phy-br-ex}
+        Port qvo197a918b-53
+            tag: 1
+            Interface qvo197a918b-53
+        Port br-int
+            Interface br-int
+                type: internal
+    Bridge br-tun
+        Controller "tcp:127.0.0.1:6633"
+            is_connected: true
+        fail_mode: secure
+        datapath_type: system
+        Port br-tun
+            Interface br-tun
+                type: internal
+        Port vxlan-0a0a140b
+            Interface vxlan-0a0a140b
+                type: vxlan
+                options: {df_default="true", egress_pkt_mark="0", in_key=flow, local_ip="10.10.20.22", out_key=flow, remote_ip="10.10.20.11"}
+        Port vxlan-0a0a1415
+            Interface vxlan-0a0a1415
+                type: vxlan
+                options: {df_default="true", egress_pkt_mark="0", in_key=flow, local_ip="10.10.20.22", out_key=flow, remote_ip="10.10.20.21"}
+        Port patch-int
+            Interface patch-int
+                type: patch
+                options: {peer=patch-tun}
+    Bridge br-ex
+        Controller "tcp:127.0.0.1:6633"
+            is_connected: true
+        fail_mode: secure
+        datapath_type: system
+        Port ens32
+            Interface ens32
+        Port phy-br-ex
+            Interface phy-br-ex
+                type: patch
+                options: {peer=int-br-ex}
+        Port br-ex
+            Interface br-ex
+                type: internal
+
+################################################################################
+PART 6: NORTH-SOUTH FLOATING IP & EAST-WEST CROSS-NODE VXLAN CONNECTIVITY
+################################################################################
+=== 1. NORTH-SOUTH FLOATING IP PING (qrouter -> cirros-vm-01: 10.10.30.132) ===
+PING 10.10.30.132 (10.10.30.132) 56(84) bytes of data.
+64 bytes from 10.10.30.132: icmp_seq=1 ttl=64 time=2.55 ms
+64 bytes from 10.10.30.132: icmp_seq=2 ttl=64 time=5.29 ms
+64 bytes from 10.10.30.132: icmp_seq=3 ttl=64 time=2.00 ms
+
+--- 10.10.30.132 ping statistics ---
+3 packets transmitted, 3 received, 0% packet loss, time 2003ms
+rtt min/avg/max/mdev = 1.999/3.276/5.285/1.437 ms
+
+=== 2. SSH INTO CIRROS-VM-01 & EAST-WEST VXLAN PING TO CIRROS-VM-02 (192.168.100.218) ===
+cirros-vm-01
+2: eth0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1450 qdisc pfifo_fast qlen 1000
+    link/ether fa:16:3e:29:06:06 brd ff:ff:ff:ff:ff:ff
+    inet 192.168.100.237/24 brd 192.168.100.255 scope global dynamic noprefixroute eth0
+       valid_lft 85455sec preferred_lft 74655sec
+    inet6 fe80::f816:3eff:fe29:606/64 scope link 
+       valid_lft forever preferred_lft forever
+ 252        0    1048576 vda
+ 252        1    1039343 vda1
+ 252       15       8192 vda15
+ 252       16    1048576 vdb
+PING 192.168.100.218 (192.168.100.218) 56(84) bytes of data.
+64 bytes from 192.168.100.218: icmp_seq=1 ttl=64 time=4.71 ms
+64 bytes from 192.168.100.218: icmp_seq=2 ttl=64 time=1.06 ms
+64 bytes from 192.168.100.218: icmp_seq=3 ttl=64 time=2.59 ms
+
+--- 192.168.100.218 ping statistics ---
+3 packets transmitted, 3 received, 0% packet loss, time 2004ms
+rtt min/avg/max/mdev = 1.055/2.785/4.711/1.498 ms
+
+################################################################################
+PART 7: CINDER LVM BLOCK STORAGE & VOLUME ATTACH VERIFICATION
+################################################################################
+=== OPENSTACK VOLUME LIST ===
++--------------------------------------+-------------+--------+------+---------------------------------------+
+| ID                                   | Name        | Status | Size | Attached to                           |
++--------------------------------------+-------------+--------+------+---------------------------------------+
+| acf33885-2cb2-4538-a420-2e542cc7f748 | demo-vol-01 | in-use |    1 | Attached to cirros-vm-01 on /dev/vdb  |
++--------------------------------------+-------------+--------+------+---------------------------------------+
+
+=== CONTROLLER LVM HOST STORAGE (cinder-volumes VG & LV) ===
+  VG             #PV #LV #SN Attr   VSize   VFree  
+  cinder-volumes   1   2   0 wz--n- <20.00g 980.00m
+  ubuntu-vg        1   1   0 wz--n- <23.00g      0 
+---
+  LV                                          VG             Attr       LSize   Pool                Origin Data%  Meta%  Move Log Cpy%Sync Convert
+  cinder-volumes-pool                         cinder-volumes twi-aotz--  19.00g                            0.00   10.57                           
+  volume-acf33885-2cb2-4538-a420-2e542cc7f748 cinder-volumes Vwi-aotz--   1.00g cinder-volumes-pool        0.00                                   
+  ubuntu-lv                                   ubuntu-vg      -wi-ao---- <23.00g                                                                   
+
+=== GUEST OS DISK VIEW (lsblk inside cirros-vm-01 showing attached 1G vdb) ===
+NAME    MAJ:MIN RM  SIZE RO TYPE MOUNTPOINTS
+vda     252:0    0    1G  0 disk 
+|-vda1  252:1    0 1015M  0 part /
+`-vda15 252:15   0    8M  0 part 
+vdb     252:16   0    1G  0 disk 
+
+################################################################################
+PART 8: OUTAGE RECOVERY DRILL & NEUTRON AGENT HEALTH
+################################################################################
+=== OUTAGE DRILL LOG (compute01 neutron_openvswitch_agent stop/start) ===
+Action: Stopped neutron_openvswitch_agent on compute01
+Result: Traffic to cirros-vm-01 (10.10.30.132) continued with 0% packet loss!
+Proof: Data Plane (openvswitch_vswitchd + kernel flow cache) decoupled from Control Plane.
+Action: Started neutron_openvswitch_agent on compute01
+Result: Agent automatically re-established RPC with RabbitMQ and resumed heartbeats.
+
+=== CURRENT OPENSTACK NETWORK AGENT LIST (ALL HEALTHY :-) ) ===
++--------------------------------------+--------------------+------------+-------------------+-------+-------+---------------------------+
+| ID                                   | Agent Type         | Host       | Availability Zone | Alive | State | Binary                    |
++--------------------------------------+--------------------+------------+-------------------+-------+-------+---------------------------+
+| 693b750b-7521-4f5b-be05-acdc94e37436 | Open vSwitch agent | controller | None              | :-)   | UP    | neutron-openvswitch-agent |
+| 728c624d-8d9a-4bd1-9fc0-452230b04b29 | Open vSwitch agent | compute02  | None              | :-)   | UP    | neutron-openvswitch-agent |
+| 7aa42616-7eef-4ffe-9d6f-a9f1bddc0ced | L3 agent           | controller | nova              | :-)   | UP    | neutron-l3-agent          |
+| 7bc2e4db-2bd5-4311-a767-e1c6019f06d0 | Open vSwitch agent | compute01  | None              | :-)   | UP    | neutron-openvswitch-agent |
+| ebc7f808-7c21-440a-ac02-a399ca5f6abe | Metadata agent     | controller | None              | :-)   | UP    | neutron-metadata-agent    |
+| fbb441b0-77ea-4a8a-8ed1-1407ced9fcaf | DHCP agent         | controller | nova              | :-)   | UP    | neutron-dhcp-agent        |
++--------------------------------------+--------------------+------------+-------------------+-------+-------+---------------------------+

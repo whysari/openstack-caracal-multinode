@@ -13,33 +13,39 @@
 
 ---
 
-## CURRENT STEP: Step 05 -> Week 4 Day-2 Cloud Operations, Multi-Node Workloads & Failure Drills
-**Status:** `AWAITING_USER_HANDS_ON_EXECUTION` (Step 04 Documented in `docs/04-kolla-ansible-deployment.md`; User now executing Step 05 hands-on)
+## CURRENT STEP: Step 05 COMPLETED & VERIFIED -> Handoff to Mac Architect
+**Status:** `STEP_05_COMPLETED_VERIFIED` (Workloads, SDN Overlay, Block Storage, and Outage Drill fully verified live)
 
-### Verification Checklist for Windows Agent (Run ONLY after User completes Step 05 Hands-On):
-When the user finishes provisioning the networks, launching `cirros-vm-01` (on `compute01`) and `cirros-vm-02` (on `compute02`), attaching the Cinder volume, assigning a Floating IP, and running the outage drill, capture the following outputs into **`evidence/04-workloads-and-drills.txt`**:
-1. **Glance Image, Flavors & Networks:**
-   - `openstack image list`
-   - `openstack flavor list`
-   - `openstack network list` & `openstack subnet list`
-   - `openstack router list` & `openstack router show demo-router`
-2. **Multi-Node VM Placement (`compute01` vs `compute02`) & Floating IP:**
-   - `openstack server list --long` (showing `cirros-vm-01` `ACTIVE` on `compute01` and `cirros-vm-02` `ACTIVE` on `compute02`, with private `192.168.100.x` and Floating IP `10.10.30.x`)
-   - `openstack floating ip list`
-3. **Live SDN Data-Plane Inspection (OVS VXLAN Tunnels & Linux Namespaces):**
-   - `ip netns list` on `controller` (showing `qrouter-*` and `qdhcp-*` namespaces created by Neutron!)
-   - `sudo docker exec openvswitch_vswitchd ovs-vsctl show` on `controller`, `compute01`, and `compute02` (showing active `vxlan-*` ports inside `br-tun` between `10.10.20.11`, `10.10.20.21`, and `10.10.20.22`, plus `qvo*` tap ports on `br-int`!)
-4. **North-South Floating IP & East-West Cross-Node VXLAN Connectivity Proof:**
-   - Ping & SSH into `cirros-vm-01`'s Floating IP (`10.10.30.x`) from `controller` (via `qrouter` or `br-ex` IP) or Windows host (`10.10.30.1`), and from inside `cirros-vm-01` ping `cirros-vm-02`'s private IP (`192.168.100.x`) across the VXLAN tunnel!
-5. **Cinder LVM/iSCSI Volume Attach Proof:**
-   - `openstack volume list` (showing `demo-vol-1` `in-use` attached to `cirros-vm-01` on `/dev/vdb`)
-   - `sudo vgs` and `sudo lvs` on `controller` (showing the backing LV inside `cinder-volumes` VG!)
-   - `lsblk` output from inside `cirros-vm-01` showing `vdb` (`1G` attached block disk).
-6. **Outage / Failure Recovery Drill Proof:**
-   - Summary/log of the OVS agent / container failure drill (`docker stop neutron_openvswitch_agent` -> observe `openstack network agent list` state / recovery -> `docker start neutron_openvswitch_agent`).
+### Verification Summary for Step 05 (Day 2 Operations & Workloads):
+All 6 checklist requirements for Step 05 were verified live on the cluster and recorded in **`evidence/04-workloads-and-drills.txt`** (24 KB):
+1. **Glance & Flavors:** `cirros-0.6.2` image uploaded and active; `m1.tiny` flavor created (1 VCPU, 256 MB RAM, 1 GB disk).
+2. **Neutron SDN Infrastructure:**
+   - Provider external network `public-net` (`10.10.30.0/24`, flat, physical network `physnet1` on `ens32`).
+   - Tenant overlay network `private-net` (`192.168.100.0/24`, VXLAN on `ens34`).
+   - Virtual router `demo-router` with SNAT enabled, gateway on `10.10.30.142`, internal interface on `192.168.100.1`.
+3. **Multi-Node VM Placement:**
+   - `cirros-vm-01` scheduled to **`compute01`** (`ACTIVE`, private IP `192.168.100.237`, Floating IP `10.10.30.132`).
+   - `cirros-vm-02` scheduled to **`compute02`** (`ACTIVE`, private IP `192.168.100.218`).
+4. **SDN Data Plane & Cross-Node VXLAN:**
+   - Active dynamic VXLAN mesh ports on `br-tun` between `10.10.20.11`, `10.10.20.21`, and `10.10.20.22`.
+   - North-South routing: Floating IP ping to `10.10.30.132` verified with 0% packet loss.
+   - East-West routing: SSH into `cirros-vm-01` on `compute01` and pinged `cirros-vm-02` (`192.168.100.218`) on `compute02` across the physical `ens34` VXLAN tunnel with 0% packet loss (avg RTT 2.78 ms, MTU 1450 verified).
+5. **Cinder LVM Block Storage Attachment:**
+   - `demo-vol-01` (1 GiB) created, attached to `cirros-vm-01` as `/dev/vdb`.
+   - Verified on host via LVM: backed by `volume-acf33885-2cb2-4538-a420-2e542cc7f748` in `cinder-volumes` thin pool on `controller:/dev/sdb`.
+   - Verified inside guest OS: `lsblk` and `/proc/partitions` show `vdb` (1048576 blocks / 1 GiB).
+6. **Outage / Resilience Drill:**
+   - Stopped `neutron_openvswitch_agent` container on `compute01`.
+   - Ping from controller to `cirros-vm-01` (`10.10.30.132`) continued without losing a single packet (proving OVS kernel data-plane persistence independent of control daemons).
+   - Started `neutron_openvswitch_agent` on `compute01`: agent automatically re-established RPC with RabbitMQ, resumed heartbeats, and returned to `Alive: :-)`, `State: UP`.
 
 ---
 
 ## STATUS REPORT FROM WINDOWS AGENT
-- **Last Updated:** 2026-11-05 12:08:03 UTC+08 (Step 04 OpenStack 2025.2 Flamingo Deployed & Verified)
-- **Step 05 Verification Status:** *(Pending user hands-on execution of Step 05)*
+- **Last Updated:** 2026-11-05 12:44:00 UTC+08
+- **Step 05 Verification Status:** `STEP_05_COMPLETED_VERIFIED`
+- **Deliverables:**
+  - `evidence/04-workloads-and-drills.txt` (Complete live verification capture)
+- **Handoff to Mac Architect:**
+  - Pull `evidence/04-workloads-and-drills.txt`.
+  - Author `docs/05-day2-workloads-and-drills.md` and update `README.md`.
