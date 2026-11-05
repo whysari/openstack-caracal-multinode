@@ -1,43 +1,39 @@
-﻿# 🔄 Dual-Agent Synchronization Bus (User Hands-On ➔ Windows Verifier ➔ Mac Architect/Documenter)
+# 🔄 Dual-Agent Synchronization Bus (User Hands-On ➔ Windows Verifier ➔ Mac Architect/Documenter)
 
 ## ⚠️ CRITICAL OPERATING RULE FOR BOTH AGENTS
 1. **The User (Ragchaa) executes all hands-on setup and lab commands personally** to build deep muscle memory.
 2. **Windows Agent Role (Q&A Assistant & Read-Only Verifier):**
    - **NEVER** auto-execute new setup or lab steps on behalf of the user.
    - Answer the user's quick questions while they work on the VMs.
-   - Only when the user asks to *"verify/confirm my work"*, run read-only verification commands, save the verified terminal output into `evidence/`, update the Status Report below, and `git push origin main`.
+   - Only when the user asks to *"verify/confirm my work"*, run read-only verification commands (and clean up temporary lab namespaces if requested), save the verified terminal output into `evidence/`, update the Status Report below, and `git push origin main`.
+   - **Encoding Note:** Always write markdown files using UTF-8 without BOM so Unicode characters render cleanly on GitHub.
 3. **Mac Agent Role (Mentor & Documentation Architect):**
    - Teach the next step with clear commands and interview theory.
    - After Windows Agent pushes the verified `evidence/` file, pull from GitHub, review the verification log, and write/update the engineering runbooks in `docs/`, `configs/`, and executive summary in `README.md`.
 
 ---
 
-## 🎯 CURRENT STEP: Step 02 ➔ Week 1 Linux Internals (Cgroups v2 + Cinder LVM)
-**Status:** `COMPLETED_WINDOWS_EXECUTION` (Verified Live ✅ — Awaiting Mac Architect Step 03 Runbook)
+## 🎯 CURRENT STEP: Step 03 ➔ Week 2 Software-Defined Networking (SDN): Namespaces, veth, Cross-Node VXLAN & MTU 1450 vs 1500
+**Status:** `AWAITING_USER_HANDS_ON_EXECUTION` (Step 02 Documented ✅; User now executing Step 03 hands-on)
 
-### Verification Summary:
-1. **Part A (Networking, LVM Expansion, SSH Mesh):** Verified 100% across all 3 nodes ✅
-2. **Part B1 (Controller Cinder LVM on `/dev/sdb`):** Verified `cinder-volumes` VG active with 20.00 GB raw capacity on `/dev/sdb` ✅
-3. **Part B2 (Compute01 Cgroups v2 & OOM Killer):** Verified Cgroups v2 unified hierarchy and captured `CONSTRAINT_MEMCG` kernel OOM kill of python3 process in dmesg ✅
-4. **Evidence File:** Fully compiled at [`evidence/01-week1-linux-lvm-cgroups.txt`](evidence/01-week1-linux-lvm-cgroups.txt) ✅
+### Verification Checklist for Windows Agent (Run ONLY after User completes Week 2 SDN Hands-On):
+When the user finishes building the manual SDN overlay across `compute01` (`10.10.20.21`) and `compute02` (`10.10.20.22`) and asks you to verify, capture the following outputs into **`evidence/02-week2-sdn-vxlan-mtu.txt`**:
+1. **Namespace & veth Inspection (`compute01` & `compute02`):**
+   - `sudo ip netns list` (`ns-vm1` on `compute01`, `ns-vm2` on `compute02`)
+   - `sudo ip netns exec ns-vm1 ip -br a` (`192.168.100.11/24`, MTU `1450`) and `sudo ip netns exec ns-vm2 ip -br a` (`192.168.100.12/24`, MTU `1450`)
+   - Bridge & VXLAN interface details on host (`ip -d link show vxlan100`, `bridge fdb show dev vxlan100`) showing VXLAN VNI `100`, UDP port `4789`, local/remote tunnel endpoints (`10.10.20.21` ↔ `10.10.20.22` on `ens34`).
+2. **Cross-Node Overlay Connectivity & MTU 1450 vs 1500 Proof (`compute01` ➔ `compute02`):**
+   - Ping from `ns-vm1` (`compute01`) to `ns-vm2` (`192.168.100.12` on `compute02`) showing 0% loss across the VXLAN tunnel.
+   - **MTU Blackhole / Overhead Proof (`ping -M do`):**
+     - `sudo ip netns exec ns-vm1 ping -c 2 -M do -s 1422 192.168.100.12` -> **PASS** (`1422` payload + `28` IP/ICMP = `1450` inner frame + `50` byte VXLAN/UDP/IP/Eth outer header = `1500` bytes on `ens34`).
+     - `sudo ip netns exec ns-vm1 ping -c 2 -M do -s 1472 192.168.100.12` -> **FAIL (`Frag needed and DF set` / `message too long`)**, proving why VXLAN tenant networks require `MTU 1450`!
+3. **iptables SNAT / Floating IP Emulation Check (`compute01`):**
+   - Output of `sudo iptables -t nat -L -n -v` (or nftables equivalent) showing the SNAT/MASQUERADE rule tested during the lab.
+4. **Clean Slate Teardown for Kolla-Ansible:**
+   - After capturing the evidence above, confirm that temporary lab interfaces (`ns-vm1`, `ns-vm2`, `br-sdn`, `vxlan100`, temporary NAT rules) have been cleanly removed so the nodes are 100% clean for Step 04 (`kolla-ansible deploy`).
 
 ---
 
 ## 📡 STATUS REPORT FROM WINDOWS AGENT
-
-- **Last Updated:** 2026-11-05 09:05:00 UTC+08
-- **Part A Live Verification:**
-  - `controller` (`10.10.10.11`): `ens33` (`10.10.10.11/24`), `ens34` (`10.10.20.11/24`), `ens32` (UP, unaddressed), Root LV `/` (23 GiB total, 17 GiB avail)
-  - `compute01` (`10.10.10.21`): `ens33` (`10.10.10.21/24`), `ens34` (`10.10.20.21/24`), `ens32` (UP, unaddressed), Root LV `/` (23 GiB total, 17 GiB avail)
-  - `compute02` (`10.10.10.22`): `ens33` (`10.10.10.22/24`), `ens34` (`10.10.20.22/24`), `ens32` (UP, unaddressed), Root LV `/` (`23 GiB` total, `17 GiB` avail)
-  - Inter-node latency: Management (`0.26-0.37 ms`), Tunnel (`0.22-0.27 ms`) with 0% loss
-  - Passwordless SSH mesh from `controller` to all nodes: Operational
-- **Part B Live Verification:**
-  - **Cinder LVM (`controller`):** Volume Group `cinder-volumes` (`<20.00g` size, `<20.00g` free) verified active on `/dev/sdb`
-  - **Cgroups v2 (`compute01`):** Unified hierarchy confirmed on `/sys/fs/cgroup`. Controllers: `cpuset cpu io memory hugetlb pids rdma misc`. Deterministic OOM-killer invocation verified in kernel logs:
-    ```text
-    [ 5603.364024] python3 invoked oom-killer: gfp_mask=0xcc0(GFP_KERNEL), order=0, oom_score_adj=0
-    [ 5603.364248] oom-kill:constraint=CONSTRAINT_MEMCG,...,task=python3,pid=2550
-    [ 5603.364258] Memory cgroup out of memory: Killed process 2550 (python3) total-vm:83524kB, anon-rss:32512kB
-    ```
-- **Next Task:** Ready for Mac Architect to document Week 1 analysis and specify **Step 03 — Week 2 Software-Defined Networking (SDN) Drill**.
+- **Last Updated:** 2026-11-05 09:05:00 UTC+08 (Week 1 Verified & Documented ✅)
+- **Week 2 SDN Verification Status:** *(Pending user hands-on execution of Week 2 SDN labs)*
