@@ -1,0 +1,4 @@
+*.yml linguist-detectable=true
+*.yaml linguist-detectable=true
+configs/kolla/multinode linguist-language=INI
+evidence/* linguist-documentation=true
